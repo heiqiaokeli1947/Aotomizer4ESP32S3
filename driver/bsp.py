@@ -118,10 +118,10 @@ class BSP:
         self.__sensorData.temp = self.__hdc1080.temperature
         self.__sensorData.humi = self.__hdc1080.humidity
         self.__sensorData.wetBulbTemp = self.aac.ts(self.__sensorData.temp, self.__sensorData.humi/100.0, 0.1)
-        print("hdc1080:temp={},humi={},wetBulbTemp={}".format(self.__sensorData.temp, self.__sensorData.humi,self.__sensorData.wetBulbTemp))
+        #print("hdc1080:temp={},humi={},wetBulbTemp={}".format(self.__sensorData.temp, self.__sensorData.humi,self.__sensorData.wetBulbTemp))
 
     def timerHandler(self, timer):
-        print("read sensor data...")
+        #print("read sensor data...")
         self.bmp280TimerHandler(timer)
         self.hdc1080TimerHandler(timer)
 

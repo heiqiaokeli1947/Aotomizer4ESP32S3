@@ -32,7 +32,7 @@ defaulteSystemConfig = {"deviceusername": "admin", "devicepwd": "pengping", "wif
                         "id": 1, "wifiname": "cissco_2g", "ver": "1.1", "serverurl": "192.168.1.124",
                         "APNetMask": "255.255.255.0", "altitude": 498, "wifinameDefault": "IOT_2G",
                         "latitude": 30.67831, "serverurlDefault": "http://3a892544f7.qicp.vip", "APPwd": "Changeme_123",
-                        "devicename": "PM5350P", "num1name": "Tree temprature", "rangename": "Tree light",
+                        "devicename": "空调喷雾控制器", "num1name": "Tree temprature", "rangename": "Tree light",
                         "mode": "normal", "sw1name": "S1", "wifipwd": "13438045703", "APGateway": "192.168.1.1",
                         "APIP": "123", "longitude": 104.0375, "pwm1freq": 25000, "pwm1default": 0, "pwm1min": 15,
                         "pwm1max": 100, "pwm2freq": 25000, "pwm2default": 0, "pwm2min": 15, "pwm2max": 100,
@@ -110,7 +110,7 @@ def feedDog(timer):
 
 
 WDTTimer = Timer(0)
-WDTTimer.init(mode=Timer.PERIODIC, period=5000, callback=feedDog)
+WDTTimer.init(mode=Timer.PERIODIC, period=15000, callback=feedDog)
 
 
 def saveData(self):
@@ -170,7 +170,7 @@ def broadcastIPInfo(name):
             LEDArrayColor = (255, 0, 255)
             bspInstance.setLEDArray(LEDArrayColor)
             print("get IP failed.")
-        utime.sleep_ms(5000)
+        utime.sleep_ms(60000)
 
 
 if "normal" == systemConfig["mode"] and wifi.connectToWifi(systemConfig["wifiname"], systemConfig["wifipwd"]):
