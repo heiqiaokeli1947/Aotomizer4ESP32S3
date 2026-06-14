@@ -33,7 +33,7 @@ class FSM:
             db.save({"waterFillTimeOut":str(self.waterFillTimeOut)})
 
         self.waterDischargeStartTime = 0
-        self.waterDischargeTimeOut = 35 #55s=2L
+        self.waterDischargeTimeOut = 60 #55s=2L
         if db.get("waterDischargeTimeOut") is not None:
             self.waterDischargeTimeOut = int(db.get("waterDischargeTimeOut"))
         else:
