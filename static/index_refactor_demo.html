@@ -1,0 +1,1193 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PM5350 监控</title>
+    <link rel="stylesheet" href="/static/spectre.min.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+        }
+
+        .grid-hero {
+            margin-top: 0;
+            margin-bottom: 1rem;
+        }
+
+        .bg-grey {
+            background-color: #efefef;
+            padding: 1rem;
+        }
+
+        header>h3 {
+            margin: 0;
+            padding: 4rem;
+        }
+
+        .hidden {
+            display: none;
+        }
+        
+        /* Tabs styles - override spectre.css */
+        .tabs {
+            margin-bottom: 1rem;
+        }
+        
+        .tabs .tab-nav {
+            position: relative;
+            border-bottom: 1px solid #ddd;
+            display: flex;
+            flex-wrap: nowrap;
+            overflow-x: auto;
+            overflow-y: hidden;
+            white-space: nowrap;
+            -webkit-overflow-scrolling: touch;
+        }
+        
+        .tabs .tab-radio {
+            position: absolute;
+            opacity: 0;
+            z-index: -1;
+        }
+        
+        .tabs .tab-link {
+            position: relative;
+            padding: .5rem 1rem;
+            font-size: .875rem;
+            font-weight: 500;
+            line-height: 1.5;
+            color: #666;
+            background-color: transparent;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: color .15s ease-in-out, border-color .15s ease-in-out;
+            margin-right: 1rem;
+            flex-shrink: 0;
+        }
+        
+        .tabs .tab-link:hover {
+            color: #007bff;
+        }
+        
+        .tabs .tab-radio:checked + .tab-link {
+            color: #007bff;
+            border-bottom-color: #007bff;
+        }
+        
+        .tabs .tab-panels {
+            position: relative;
+            padding-top: 1rem;
+        }
+        
+        .tabs .tab-panel {
+            display: none;
+        }
+        
+        /* 默认显示第一个标签页 */
+        .tabs .tab-panels #tab-sensor-section {
+            display: block;
+        }
+    </style>
+    <script src="/static/chart.umd.js"></script>
+    <script src="/static/sweetalert.min.js"></script>
+    <script src="/static/jquery.min.js"></script>
+</head>
+
+<body>
+    <!-- 头部区域 -->
+    <section class="section bg-primary">
+        <section class="grid-hero container grid-480">
+            <header class="text-center" style="padding: 1rem 0;">
+                <h2 style="margin: 0;">Smart node</h2>
+            </header>
+        </section>
+    </section>
+
+    <!-- 设备控制区域 -->
+    <section class="section">
+        <section id="device-control" class="container grid-480">
+            <!-- 设备名称 -->
+            <div class="form-group">
+                <label>设备名称:<span id="device_name_show">----</span></label>
+            </div>
+            
+            <!-- WiFi名称 -->
+            <div class="form-group">
+                <label>WiFi名称:<span id="wifi_name_show">----</span></label>
+            </div>
+
+            <!-- 标签页容器 -->
+            <div class="tabs">
+                <!-- 标签导航栏 -->
+                <div class="tab-nav">
+                    <input id="tab-sensor" type="radio" name="tabs" class="tab-radio" checked>
+                    <label class="tab-link" for="tab-sensor">传感器数据</label>
+                    <input id="tab-setting" type="radio" name="tabs" class="tab-radio">
+                    <label class="tab-link" for="tab-setting">参数设置</label>
+                    <input id="tab-network" type="radio" name="tabs" class="tab-radio">
+                    <label class="tab-link" for="tab-network">网络设置</label>
+                </div>
+                
+                <!-- 内容区域 -->
+                <div class="tab-panels">
+                <!-- 传感器数据面板 -->
+                <div id="tab-sensor-section" class="tab-panel">
+                <!-- 图表 -->
+                <canvas id="monitorChart" width="100%" height="100px"></canvas>
+
+                <!-- 传感器数据仪表板 -->
+                <div class="form-group" style="margin-top: 1rem;">
+                    <label class="form-label" style="font-weight: 600; font-size: 1.1rem; margin-bottom: 0.75rem;">传感器数据</label>
+                </div>
+
+                <!-- 卡片网格容器 - 响应式多列布局 -->
+                <div class="columns col-mx-auto" style="max-width: 100%;">
+                    <!-- 电力参数卡片 -->
+                    <div class="column col-6 col-sm-6 col-md-6 col-lg-3">
+                        <div class="card">
+                            <div class="card-header bg-blue">
+                                <div class="card-title h5 text-white">电力参数</div>
+                            </div>
+                            <div class="card-body" style="padding: 0.75rem;">
+                                <div class="grid grid-3">
+                                    <div class="column">
+                                        <div class="text-gray text-xs mb-1">电压</div>
+                                        <div class="text-sm font-semibold text-blue" id="id_voltageAvg">----V</div>
+                                    </div>
+                                    <div class="column">
+                                        <div class="text-gray text-xs mb-1">电流</div>
+                                        <div class="text-sm font-semibold text-blue" id="id_currentAvg">----A</div>
+                                    </div>
+                                    <div class="column">
+                                        <div class="text-gray text-xs mb-1">功率</div>
+                                        <div class="text-sm font-semibold text-blue" id="id_totalPower">----kW</div>
+                                    </div>
+                                </div>
+                                <div class="grid grid-3 mt-1">
+                                    <div class="column">
+                                        <div class="text-gray text-xs mb-1">频率</div>
+                                        <div class="text-xs font-semibold text-gray" id="id_powerFreq">----Hz</div>
+                                    </div>
+                                    <div class="column">
+                                        <div class="text-gray text-xs mb-1">功率因数</div>
+                                        <div class="text-xs font-semibold text-gray" id="id_totalPowerFactor">----</div>
+                                    </div>
+                                    <div class="column">
+                                        <div class="text-gray text-xs mb-1">电能</div>
+                                        <div class="text-xs font-semibold text-gray" id="id_totalEnergy">----Wh</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 环境参数卡片 -->
+                    <div class="column col-6 col-sm-6 col-md-6 col-lg-3">
+                        <div class="card">
+                            <div class="card-header bg-green">
+                                <div class="card-title h5 text-white">环境参数</div>
+                            </div>
+                            <div class="card-body" style="padding: 0.75rem;">
+                                <div class="grid grid-3">
+                                    <div class="column">
+                                        <div class="text-gray text-xs mb-1">温度</div>
+                                        <div class="text-md font-bold" style="color: #e74c3c;" id="id_temp">----℃</div>
+                                    </div>
+                                    <div class="column">
+                                        <div class="text-gray text-xs mb-1">湿度</div>
+                                        <div class="text-md font-bold" style="color: #27ae60;" id="id_humity">----%</div>
+                                    </div>
+                                    <div class="column">
+                                        <div class="text-gray text-xs mb-1">湿球温度</div>
+                                        <div class="text-md font-bold" style="color: #3498db;" id="id_wetBulbTemp">----℃</div>
+                                    </div>
+                                </div>
+                                <div class="grid grid-3 mt-2">
+                                    <div class="column">
+                                        <div class="text-gray text-xs mb-1">气压</div>
+                                        <div class="text-sm font-semibold text-purple" id="id_presure">----Pa</div>
+                                    </div>
+                                    <div class="column">
+                                        <div class="text-gray text-xs mb-1">照度</div>
+                                        <div class="text-sm font-semibold text-purple" id="id_luminance">----Lux</div>
+                                    </div>
+                                    <div class="column">
+                                        <div class="text-gray text-xs mb-1">PM2.5</div>
+                                        <div class="text-sm font-semibold text-purple" id="id_pm2_5">----μg/m³</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 运行时间卡片 -->
+                    <div class="column col-12 col-sm-12 col-md-12 col-lg-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <div class="card-title h5">运行时间</div>
+                            </div>
+                            <div class="card-body" style="padding: 0.75rem;">
+                                <div class="grid grid-2">
+                                    <div class="column">
+                                        <div class="text-gray text-sm mb-1">本次启动</div>
+                                        <div class="text-lg font-bold text-primary" id="id_runtime">----s</div>
+                                    </div>
+                                    <div class="column">
+                                        <div class="text-gray text-sm mb-1">总运行时间</div>
+                                        <div class="text-lg font-bold text-primary" id="id_totalRuntime">----s</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="height: 20px;"></div>
+                </div> <!-- 关闭 tab-sensor-section -->
+                
+                <!-- 参数设置面板 -->
+                <div id="tab-setting-section" class="tab-panel">
+                <!-- 参数设置 -->
+                <div class="form-group">
+                    <label>温度高阈值 (℃):</label>
+                    <div class="input-group">
+                        <input type="text" id="threhold_h" class="form-input" value="----"
+                            placeholder="外机散热器翅片温度高阈值." />
+                    </div>
+
+                    <label>温度低阈值 (℃):</label>
+                    <div class="input-group">
+                        <input type="text" id="threhold_l" class="form-input" value="----"
+                            placeholder="外机散热器翅片温度低阈值：喷水启动阈值." />
+                    </div>
+
+                    <label>PWM 频率 (Hz):</label>
+                    <div class="input-group">
+                        <input type="text" id="pwm_freq" class="form-input" value="----"
+                            placeholder="PWM 频率 (Hz)." />
+                    </div>
+
+                    <label>最小 PWM 占空比 (%):</label>
+                    <div class="input-group">
+                        <input type="text" id="pwm_min_duty" class="form-input" value="----"
+                            placeholder="PWM 最小占空比." />
+                    </div>
+
+                    <label>最大 PWM 占空比 (%):</label>
+                    <div class="input-group">
+                        <input type="text" id="pwm_max_duty" class="form-input" value="----"
+                            placeholder="PWM 最大占空比." />
+                    </div>
+                </div>
+
+                <!-- 开关控制 -->
+                <div class="form-group" style="display: flex; align-items: center;">
+                    <label class="form-label" for="select-ap" style="margin-right: 10px;">开关控制:</label>
+                    <label class="form-switch" style="margin-right: 15px;">
+                        <input type="checkbox" id="checkbox_1" />
+                        <i class="form-icon"></i>
+                        <span id="sw_1_name">---</span>
+                    </label>
+                    <label class="form-switch" style="margin-right: 20px;">
+                        <input type="checkbox" id="checkbox_2" />
+                        <i class="form-icon"></i>
+                        <span id="sw_2_name">---</span>
+                    </label>
+                </div>
+
+                <!-- 开关控制按钮 -->
+                <div class="form-group" style="text-align: right;">
+                    <button type="button" id="btn_switch" class="btn btn-primary">Apply setting</button>
+                </div>
+
+                <!-- 重启/重置按钮 -->
+                <div class="form-group" style="overflow: hidden;">
+                    <button type="button" id="btn_reset" class="btn btn-primary float-left"> reset </button>
+                    <button type="button" id="btn_restart" class="btn btn-primary float-right">restart</button>
+                </div>
+
+                <div style="height: 40px;"></div>
+                </div> <!-- 关闭 tab-setting-section -->
+                
+                <!-- 网络设置面板 -->
+                <div id="tab-network-section" class="tab-panel">
+                <div class="form-group">
+                    <label class="form-label" style="font-weight: 600; font-size: 1.1rem;">网络设置</label>
+                </div>
+            <form>
+                <div class="form-group">
+                    <label>Device name:</label>
+                    <div class="input-group">
+                        <input type="text" id="device_name" class="form-input" value="----"
+                            placeholder="Input device name." />
+                    </div>
+
+                    <label class="form-label" for="select-ap">Device password:</label>
+                    <div class="input-group">
+                        <input type="text" id="devicepwd" class="form-input" value="pengping"
+                            placeholder="Input device password." />
+                    </div>
+
+                    <label class="form-label" for="select-ap">Switch 1 name:</label>
+                    <div class="input-group">
+                        <input type="text" id="input_switch_1_name" class="form-input" value="----"
+                            placeholder="Input switch 1 name." />
+                    </div>
+
+                    <label class="form-label" for="select-ap">Switch 2 name:</label>
+                    <div class="input-group">
+                        <input type="text" id="input_switch_2_name" class="form-input" value="----"
+                            placeholder="Input switch 2 name." />
+                    </div>
+
+                    <label class="form-label" for="select-ap">Server IP:</label>
+                    <div class="input-group">
+                        <input type="text" id="serverurl" class="form-input" value="192.168.1.124"
+                            placeholder="Input server IP." />
+                    </div>
+
+                    <label class="form-label" for="set-server-info">WIFI name:</label>
+                    <div class="input-group">
+                        <input type="text" id="ssid" class="form-input" placeholder="Input or select WIFI SSID." />
+                        <button type="button" id="scanap" class="btn btn-primary float-right">Scan AP</button>
+                    </div>
+
+                    <label class="form-label" for="input-pwd">WIFI password:</label>
+                    <div class="input-group">
+                        <input id="input-pwd" class="form-input" type="password" placeholder="Input WIFI password." />
+                        <button type="button" id="connect" class="btn btn-primary float-right">Connect</button>
+                    </div>
+                </div>
+            </form>
+                </div> <!-- 关闭 tab-network-section -->
+                </div> <!-- 关闭 tab-panels -->
+            </div> <!-- 关闭 tabs 容器 -->
+
+        <!-- 底部 -->
+        <section class="section bg-primary" style="margin-bottom: 0;">
+            <section class="grid-hero container grid-480">
+                <section class="text-center" style="padding: 1rem 0; margin: 0;">
+                    <p style="margin: 0;">Powered by pengping.</p>
+                </section>
+            </section>
+        </section>
+    </section>
+
+    <!-- 选择 WiFi 模态框 -->
+    <div id="selectwifi" class="modal">
+        <div class="modal-overlay"></div>
+        <div class="modal-container">
+            <div class="modal-header">
+                <div class="modal-title">Near by WIFI:</div>
+            </div>
+            <div id="aplist" class="modal-body" style="background-color: #66b3ff; min-height: 50px"></div>
+        </div>
+    </div>
+
+    <!-- AP 列表项模板 -->
+    <script id="item-ap" type="text/html">
+        <div class="chip hand">
+            <svg width="30px" height="20px" class="chip-icon">
+                <path d="M15,20 L0.86,5.86 A20,20 0 0,1 29.14,5.86" fill="#d0d0d0" />
+                <path d="M15,20 L{0},{1} A{2},{2} 0 0,1 {3},{1}" fill="#adadad" />
+            </svg>
+            <span class="chip-content">{4}</span>
+        </div>
+    </script>
+
+    <!-- ============================================
+         应用主脚本 - 模块化重构版本
+         ============================================ -->
+    <script>
+        // ============================================
+        // 配置常量
+        // ============================================
+        const CONFIG = {
+            API: {
+                STATUS: '../status',
+                SCAN_AP: '../scanap',
+                SET_WIFI: '../setwifi',
+                RESET: '../reset',
+                RESTART: '../restart'
+            },
+            TIME: {
+                REFRESH_INTERVAL: 5000,
+                REQUEST_TIMEOUT: 10000
+            },
+            BUFFER: {
+                MAX_SIZE: 350,
+                INVALID_VALUE: -9999
+            },
+            SELECTORS: {
+                DEVICE_NAME: '#device_name_show',
+                WIFI_NAME: '#wifi_name_show',
+                DEVICE_NAME_INPUT: '#device_name',
+                RUNTIME: '#id_runtime',
+                TOTAL_RUNTIME: '#id_totalRuntime',
+                VOLTAGE_AVG: '#id_voltageAvg',
+                CURRENT_AVG: '#id_currentAvg',
+                TOTAL_POWER: '#id_totalPower',
+                POWER_FREQ: '#id_powerFreq',
+                TOTAL_POWER_FACTOR: '#id_totalPowerFactor',
+                TOTAL_ENERGY: '#id_totalEnergy',
+                TEMP: '#id_temp',
+                WET_BULB_TEMP: '#id_wetBulbTemp',
+                HUMI: '#id_humity',
+                PRESURE: '#id_presure',
+                LUMINANCE: '#id_luminance',
+                PM25: '#id_pm2_5',
+                SWITCH_1: '#checkbox_1',
+                SWITCH_2: '#checkbox_2',
+                SWITCH_1_NAME: '#sw_1_name',
+                SWITCH_2_NAME: '#sw_2_name',
+                SWITCH_1_NAME_INPUT: '#input_switch_1_name',
+                SWITCH_2_NAME_INPUT: '#input_switch_2_name',
+                THRESHOLD_H: '#threhold_h',
+                THRESHOLD_L: '#threhold_l',
+                PWM_FREQ: '#pwm_freq',
+                PWM_MIN_DUTY: '#pwm_min_duty',
+                PWM_MAX_DUTY: '#pwm_max_duty',
+                DEVICEPWD: '#devicepwd',
+                SERVERURL: '#serverurl',
+                SSID: '#ssid',
+                INPUT_PWD: '#input-pwd',
+                BTN_SWITCH: '#btn_switch',
+                BTN_RESET: '#btn_reset',
+                BTN_RESTART: '#btn_restart',
+                BTN_CONNECT: '#connect',
+                BTN_SCANAP: '#scanap',
+                DEVICE_CONTROL: '#device-control',
+                NETWORK_CONFIG: '#tab-network-section'
+            },
+            UNITS: {
+                temp: '℃',
+                wetBulbTemp: '℃',
+                humi: 'RH%',
+                presure: 'Pa',
+                luminance: 'Lux',
+                pm25: 'μg/m³',
+                voltage: 'V',
+                current: 'A',
+                power: 'kW',
+                frequency: 'Hz',
+                energy: 'kWh',
+                runtime: 's'
+            }
+        };
+
+        // ============================================
+        // 工具函数
+        // ============================================
+        const UTILS = {
+            isUserEditing: function() {
+                const activeElement = document.activeElement;
+                if (!activeElement) return false;
+                const editableTags = ['INPUT', 'TEXTAREA', 'SELECT'];
+                if (editableTags.includes(activeElement.tagName)) {
+                    return !activeElement.readOnly && !activeElement.disabled;
+                }
+                return !!activeElement.isContentEditable;
+            },
+            formatValue: function(value, unit = '', defaultValue = '----') {
+                if (value === null || value === undefined || value === CONFIG.BUFFER.INVALID_VALUE) {
+                    return defaultValue;
+                }
+                return `${value}${unit}`;
+            },
+            formatTime: function(seconds) {
+                if (seconds === null || seconds === undefined) return '----s';
+                if (seconds < 60) return `${seconds}s`;
+                if (seconds < 3600) return `${(seconds / 60).toFixed(1)}min`;
+                return `${(seconds / 3600).toFixed(1)}h`;
+            },
+            parseJSON: function(str) {
+                try {
+                    return JSON.parse(str);
+                } catch (e) {
+                    console.error('JSON parse error:', e);
+                    return null;
+                }
+            },
+            showMessage: function(title, message, type = 'success') {
+                if (typeof swal === 'function') {
+                    swal(title, message, type);
+                } else {
+                    alert(`${title}\n${message}`);
+                }
+            },
+            formatString: function(str) {
+                const args = arguments;
+                return str.replace(/\{(\d+)\}/g, function(m, i) {
+                    return args[parseInt(i) + 1];
+                });
+            }
+        };
+
+        // ============================================
+        // 数据模型类（使用工厂模式，避免直接引用 App）
+        // ============================================
+        function createDataBuffer(maxSize = CONFIG.BUFFER.MAX_SIZE) {
+            return {
+                maxSize: maxSize,
+                buffer: [],
+                isFull: function() {
+                    return this.buffer.length >= this.maxSize;
+                },
+                add: function(data) {
+                    if (this.isFull()) {
+                        this.buffer.shift();
+                    }
+                    this.buffer.push(data);
+                    console.log(`Buffer size: ${this.buffer.length}`);
+                },
+                getPlotData: function() {
+                    const plotData = {
+                        x: [],
+                        temp: [],
+                        humi: [],
+                        pm25: [],
+                        luminance: [],
+                        presure: [],
+                        Ptotal: undefined,
+                        fanHThreshold: undefined,
+                        fanLThreshold: undefined
+                    };
+
+                    plotData.x = Array.from({ length: this.buffer.length }, (_, i) => i).reverse();
+
+                    const invalidValue = CONFIG.BUFFER.INVALID_VALUE;
+                    for (const i in this.buffer) {
+                        const json = this.buffer[i];
+                        plotData.temp[i] = json.temp === invalidValue ? undefined : json.temp;
+                        plotData.humi[i] = json.humi === invalidValue ? undefined : json.humi;
+                        plotData.pm25[i] = json.pm25 === invalidValue ? undefined : json.pm25;
+                        plotData.luminance[i] = json.luminance === invalidValue ? undefined : json.luminance;
+                        plotData.presure[i] = json.presure === invalidValue ? undefined : json.presure;
+                    }
+
+                    if (this.buffer.length > 0) {
+                        const last = this.buffer[this.buffer.length - 1];
+                        plotData.Ptotal = last.Ptotal;
+                        if (last.fanHThreshold !== undefined && last.fanHThreshold !== null) {
+                            plotData.fanHThreshold = last.fanHThreshold;
+                        }
+                        if (last.fanLThreshold !== undefined && last.fanLThreshold !== null) {
+                            plotData.fanLThreshold = last.fanLThreshold;
+                        }
+                    }
+
+                    return plotData;
+                }
+            };
+        }
+
+        function createDeviceData() {
+            return {
+                data: {},
+                INVALID_VALUE: CONFIG.BUFFER.INVALID_VALUE,
+                update: function(rawData) {
+                    this.data = this.parse(rawData);
+                },
+                parse: function(rawData) {
+                    const invalid = this.INVALID_VALUE;
+                    return {
+                        deviceName: rawData.devicename || '---',
+                        wifiName: rawData.wifiname || '---',
+                        mode: rawData.mode || 'unknown',
+                        runTime: rawData.runTime || 0,
+                        totalRunTime: rawData.totalRunTime || 0,
+                        power: {
+                            voltageAvg: rawData.Vab || 0,
+                            currentAvg: rawData.Iavg || 0,
+                            totalPower: rawData.Ptotal || 0,
+                            frequency: rawData.Freq || 0,
+                            powerFactor: rawData.PFtotal || 0,
+                            totalEnergy: rawData.Eaed || 0
+                        },
+                        sensors: {
+                            temp: rawData.temp || invalid,
+                            wetBulbTemp: rawData.wetBulbTemp || invalid,
+                            humi: rawData.humi || invalid,
+                            presure: rawData.presure || invalid,
+                            luminance: rawData.luminance || invalid,
+                            pm25: rawData.pm25 || invalid
+                        },
+                        switches: {
+                            sw1: rawData.sw1 || false,
+                            sw2: rawData.sw2 || false,
+                            sw1Name: rawData.sw1name || 'S1',
+                            sw2Name: rawData.sw2name || 'S2'
+                        },
+                        settings: {
+                            fanHThreshold: rawData.fanHThreshold || '----',
+                            fanLThreshold: rawData.fanLThreshold || '----',
+                            pwmFreq: rawData.pwm1freq || '----',
+                            pwmMinDuty: rawData.pwm1min || '----',
+                            pwmMaxDuty: rawData.pwm1max || '----'
+                        },
+                        network: {
+                            serverurl: rawData.serverurl || '',
+                            devicepwd: rawData.devicepwd || 'pengping'
+                        }
+                    };
+                },
+                get: function(key) {
+                    const keys = key.split('.');
+                    return keys.reduce((obj, k) => obj && obj[k], this.data);
+                }
+            };
+        }
+
+        // ============================================
+        // 视图类（使用工厂模式）
+        // ============================================
+        function createBaseView(selector) {
+            return {
+                $el: $(selector),
+                update: function(data) {
+                    throw new Error('update() must be implemented');
+                },
+                show: function() {
+                    this.$el.show();
+                },
+                hide: function() {
+                    this.$el.hide();
+                }
+            };
+        }
+
+        function createSensorView() {
+            const view = createBaseView('#device-control');
+            view.mapping = {
+                'runTime': { selector: CONFIG.SELECTORS.RUNTIME, formatter: UTILS.formatTime },
+                'totalRunTime': { selector: CONFIG.SELECTORS.TOTAL_RUNTIME, formatter: UTILS.formatTime },
+                'power.voltageAvg': { selector: CONFIG.SELECTORS.VOLTAGE_AVG, unit: CONFIG.UNITS.voltage, decimals: 3 },
+                'power.currentAvg': { selector: CONFIG.SELECTORS.CURRENT_AVG, unit: CONFIG.UNITS.current, decimals: 3 },
+                'power.totalPower': { selector: CONFIG.SELECTORS.TOTAL_POWER, unit: CONFIG.UNITS.power, decimals: 3 },
+                'power.frequency': { selector: CONFIG.SELECTORS.POWER_FREQ, unit: CONFIG.UNITS.frequency, decimals: 3 },
+                'power.powerFactor': { selector: CONFIG.SELECTORS.TOTAL_POWER_FACTOR, unit: '', decimals: 3 },
+                'power.totalEnergy': { selector: CONFIG.SELECTORS.TOTAL_ENERGY, unit: CONFIG.UNITS.energy, formatter: (v) => `${(v/1000.0).toFixed(3)}${CONFIG.UNITS.energy}` },
+                'sensors.temp': { selector: CONFIG.SELECTORS.TEMP, unit: CONFIG.UNITS.temp },
+                'sensors.wetBulbTemp': { selector: CONFIG.SELECTORS.WET_BULB_TEMP, unit: CONFIG.UNITS.temp },
+                'sensors.humi': { selector: CONFIG.SELECTORS.HUMI, unit: CONFIG.UNITS.humi },
+                'sensors.presure': { selector: CONFIG.SELECTORS.PRESURE, unit: CONFIG.UNITS.presure },
+                'sensors.luminance': { selector: CONFIG.SELECTORS.LUMINANCE, unit: CONFIG.UNITS.luminance },
+                'sensors.pm25': { selector: CONFIG.SELECTORS.PM25, unit: CONFIG.UNITS.pm25 }
+            };
+            view.update = function(deviceData) {
+                Object.entries(this.mapping).forEach(([key, config]) => {
+                    const value = deviceData.get(key);
+                    let formatted;
+                    if (config.formatter) {
+                        formatted = config.formatter(value);
+                    } else if (config.decimals !== undefined) {
+                        formatted = UTILS.formatValue(value.toFixed(config.decimals) + config.unit);
+                    } else {
+                        formatted = UTILS.formatValue(value, config.unit);
+                    }
+                    $(config.selector).text(formatted);
+                });
+            };
+            return view;
+        }
+
+        function createControlView() {
+            const view = createBaseView('#device-control');
+            view.update = function(deviceData) {
+                const switches = deviceData.data.switches;
+                $(CONFIG.SELECTORS.SWITCH_1).prop('checked', switches.sw1);
+                $(CONFIG.SELECTORS.SWITCH_2).prop('checked', switches.sw2);
+                $(CONFIG.SELECTORS.SWITCH_1_NAME).text(switches.sw1Name);
+                $(CONFIG.SELECTORS.SWITCH_2_NAME).text(switches.sw2Name);
+                $(CONFIG.SELECTORS.SWITCH_1_NAME_INPUT).val(switches.sw1Name);
+                $(CONFIG.SELECTORS.SWITCH_2_NAME_INPUT).val(switches.sw2Name);
+            };
+            return view;
+        }
+
+        function createSettingsView() {
+            const view = createBaseView('#device-control');
+            view.update = function(deviceData) {
+                const settings = deviceData.data.settings;
+                $(CONFIG.SELECTORS.THRESHOLD_H).val(settings.fanHThreshold);
+                $(CONFIG.SELECTORS.THRESHOLD_L).val(settings.fanLThreshold);
+                $(CONFIG.SELECTORS.PWM_FREQ).val(settings.pwmFreq);
+                $(CONFIG.SELECTORS.PWM_MIN_DUTY).val(settings.pwmMinDuty);
+                $(CONFIG.SELECTORS.PWM_MAX_DUTY).val(settings.pwmMaxDuty);
+            };
+            return view;
+        }
+
+        function createDeviceInfoView() {
+            const view = createBaseView('#device-control');
+            view.update = function(deviceData) {
+                $(CONFIG.SELECTORS.DEVICE_NAME).text(deviceData.data.deviceName);
+                $(CONFIG.SELECTORS.WIFI_NAME).text(deviceData.data.wifiName);
+                $(CONFIG.SELECTORS.DEVICE_NAME_INPUT).val(deviceData.data.deviceName);
+                $(CONFIG.SELECTORS.SERVERURL).val(deviceData.data.network.serverurl);
+                $(CONFIG.SELECTORS.DEVICEPWD).val(deviceData.data.network.devicepwd);
+            };
+            return view;
+        }
+
+        // ============================================
+        // 图表管理器
+        // ============================================
+        function createChartManager(canvasId) {
+            return {
+                canvasId: canvasId,
+                chart: null,
+                bufferLength: CONFIG.BUFFER.MAX_SIZE,
+                init: function() {
+                    const ctx = document.getElementById(this.canvasId).getContext('2d');
+                    this.chart = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: [],
+                            datasets: [
+                                { label: '温度', data: [], fill: false, borderColor: 'rgb(75, 132, 192)', tension: 0.1 },
+                                { label: '湿度', data: [], fill: false, borderColor: 'rgb(175, 92, 192)', tension: 0.1 },
+                                { label: '功率', data: [], fill: false, borderColor: 'rgb(175, 92, 92)', tension: 0.1 },
+                                { label: '高阈值', data: [], fill: false, borderColor: 'rgb(255, 0, 0)', tension: 0.1 },
+                                { label: '低阈值', data: [], fill: false, borderColor: 'rgb(0, 255, 0)', tension: 0.1 }
+                            ]
+                        },
+                        options: {
+                            responsive: true,
+                            animation: true,
+                            scales: { x: { display: false }, y: { beginAtZero: false } }
+                        }
+                    });
+                    return this;
+                },
+                updatePlotData: function(plotData) {
+                    const data = this.chart.data;
+                    data.datasets.forEach(dataset => {
+                        if (dataset.data.length >= this.bufferLength) {
+                            dataset.data.shift();
+                        }
+                        switch (dataset.label) {
+                            case '温度': dataset.data.push(plotData.temp.at(-1)); break;
+                            case '湿度': dataset.data.push(plotData.humi.at(-1)); dataset.hidden = true; break;
+                            case '功率': dataset.data.push(plotData.Ptotal); dataset.hidden = false; break;
+                            case '高阈值': dataset.data.push(plotData.fanHThreshold); break;
+                            case '低阈值': dataset.data.push(plotData.fanLThreshold); break;
+                        }
+                    });
+                    data.labels = plotData.x;
+                    this.chart.update();
+                }
+            };
+        }
+
+        // ============================================
+        // 刷新控制器
+        // ============================================
+        function createRefreshController(deviceModel, views, dataBuffer, chart) {
+            return {
+                deviceModel: deviceModel,
+                views: views,
+                dataBuffer: dataBuffer,
+                chart: chart,
+                timer: null,
+                isEditing: false,
+                hasPendingRequest: false,
+
+                start: function() {
+                    const self = this;
+                    this.timer = setInterval(function() {
+                        if (self.shouldRefresh()) {
+                            self.refresh();
+                        }
+                    }, CONFIG.TIME.REFRESH_INTERVAL);
+                },
+
+                stop: function() {
+                    if (this.timer) {
+                        clearInterval(this.timer);
+                        this.timer = null;
+                    }
+                },
+
+                shouldRefresh: function() {
+                    return !this.isEditing && !this.hasPendingRequest && !UTILS.isUserEditing();
+                },
+
+                async refresh() {
+                    const pwd = $(CONFIG.SELECTORS.DEVICEPWD).val();
+                    console.log(`Refreshing with pwd: '${pwd}'`);
+
+                    try {
+                        this.hasPendingRequest = true;
+
+                        const response = await $.get(
+                            CONFIG.API.STATUS,
+                            { mode: 'get', devicepwd: pwd }
+                        );
+
+                        const resJson = UTILS.parseJSON(response);
+                        if (!resJson) throw new Error('Invalid response');
+
+                        if (resJson.errCode === '0') {
+                            this.deviceModel.update(resJson);
+
+                            this.views.forEach(function(view) {
+                                try {
+                                    view.update(this.deviceModel);
+                                } catch (e) {
+                                    console.error('View update error:', e);
+                                }
+                            }.bind(this));
+
+                            this.dataBuffer.add(resJson);
+                            const plotData = this.dataBuffer.getPlotData();
+                            this.chart.updatePlotData(plotData);
+                        } else {
+                            console.error('Refresh error:', resJson.msg);
+                            this.handleErrorCode(resJson.errCode);
+                        }
+                    } catch (error) {
+                        console.error('Refresh failed:', error);
+                    } finally {
+                        this.hasPendingRequest = false;
+                    }
+                },
+
+                handleModeSwitch: function(mode) {
+                    // 已移除 mode 控制逻辑，所有控件始终可编辑
+                },
+
+                enableDeviceControls: function() {
+                    // 已移除控件禁用逻辑
+                },
+
+                enableNetworkControls: function() {
+                    // 已移除控件禁用逻辑
+                },
+
+                disableNetworkControls: function() {
+                    $('#color_r').prop('disabled', true);
+                    $('#color_g').prop('disabled', true);
+                    $('#color_b').prop('disabled', true);
+                    $(CONFIG.SELECTORS.SWITCH_1).prop('disabled', true);
+                    $(CONFIG.SELECTORS.SWITCH_2).prop('disabled', true);
+                    $(CONFIG.SELECTORS.BTN_SWITCH).prop('disabled', true);
+                },
+
+                handleErrorCode: function(code) {
+                    const selectors = [
+                        CONFIG.SELECTORS.TEMP,
+                        CONFIG.SELECTORS.HUMI,
+                        CONFIG.SELECTORS.PRESURE,
+                        CONFIG.SELECTORS.LUMINANCE,
+                        CONFIG.SELECTORS.PM25
+                    ];
+
+                    const text = code === '-1' ? 'query failed.' : 'unknown.';
+                    selectors.forEach(function(selector) {
+                        $(selector).text(text);
+                    });
+                },
+
+                pause: function() {
+                    this.isEditing = true;
+                },
+
+                resume: function() {
+                    this.isEditing = false;
+                }
+            };
+        }
+
+        // ============================================
+        // 事件控制器
+        // ============================================
+        function createEventController(refreshController) {
+            return {
+                refreshController: refreshController,
+
+                bindEvents: function() {
+                    const self = this;
+
+                    $(CONFIG.SELECTORS.BTN_SWITCH).click(function() {
+                        self.handleSwitchSetting();
+                    });
+
+                    $(CONFIG.SELECTORS.BTN_RESTART).click(function() {
+                        self.handleRestart();
+                    });
+
+                    $(CONFIG.SELECTORS.BTN_RESET).click(function() {
+                        self.handleReset();
+                    });
+
+                    $(CONFIG.SELECTORS.BTN_CONNECT).click(function() {
+                        self.handleConnect();
+                    });
+
+                    $(CONFIG.SELECTORS.BTN_SCANAP).click(function() {
+                        self.handleScanAP();
+                    });
+
+                    // 标签页切换
+                    $('.tabs .tab-radio').change(function() {
+                        var tabId = $(this).attr('id').replace('tab-', '');
+                        self.switchTab(tabId);
+                    });
+                },
+
+                switchTab: function(tabId) {
+                    // 隐藏所有面板
+                    $('.tabs .tab-panel').hide();
+                    // 显示对应面板
+                    $('#tab-' + tabId + '-section').show();
+                },
+
+                showSensorSection: function() {
+                    $('#tab-sensor').prop('checked', true);
+                    this.switchTab('sensor');
+                },
+
+                showSettingSection: function() {
+                    $('#tab-setting').prop('checked', true);
+                    this.switchTab('setting');
+                },
+
+                async handleSwitchSetting() {
+                    const $btn = $(CONFIG.SELECTORS.BTN_SWITCH);
+                    $btn.addClass('loading').prop('disabled', true);
+
+                    try {
+                        const url = UTILS.formatString(
+                            '{0}?mode=set&devicepwd={1}&fanHThreshold={2}&fanLThreshold={3}&pwm1freq={4}&pwm1min={5}&pwm1max={6}&sw1={7}&sw2={8}',
+                            CONFIG.API.STATUS,
+                            $(CONFIG.SELECTORS.DEVICEPWD).val(),
+                            $(CONFIG.SELECTORS.THRESHOLD_H).val(),
+                            $(CONFIG.SELECTORS.THRESHOLD_L).val(),
+                            $(CONFIG.SELECTORS.PWM_FREQ).val(),
+                            $(CONFIG.SELECTORS.PWM_MIN_DUTY).val(),
+                            $(CONFIG.SELECTORS.PWM_MAX_DUTY).val(),
+                            $(CONFIG.SELECTORS.SWITCH_1).is(':checked'),
+                            $(CONFIG.SELECTORS.SWITCH_2).is(':checked')
+                        );
+
+                        const response = await $.get(url);
+                        const resJson = UTILS.parseJSON(response);
+
+                        this.handleResponse(resJson, {
+                            '0': 'success!\n',
+                            '-1': 'Wrong password!'
+                        });
+                    } catch (error) {
+                        UTILS.showMessage('Error', error.message, 'error');
+                    } finally {
+                        $btn.removeClass('loading').prop('disabled', false);
+                    }
+                },
+
+                async handleRestart() {
+                    const $btn = $(CONFIG.SELECTORS.BTN_RESTART);
+                    $btn.addClass('loading').prop('disabled', true);
+
+                    try {
+                        const response = await $.get(
+                            UTILS.formatString('{0}?devicepwd={1}',
+                                CONFIG.API.RESTART,
+                                $(CONFIG.SELECTORS.DEVICEPWD).val()
+                            )
+                        );
+                        const resJson = UTILS.parseJSON(response);
+
+                        this.handleResponse(resJson, {
+                            '0': 'Control success!\n',
+                            '-1': 'Wrong password!'
+                        });
+                    } catch (error) {
+                        UTILS.showMessage('Error', error.message, 'error');
+                    } finally {
+                        $btn.removeClass('loading').prop('disabled', false);
+                    }
+                },
+
+                async handleReset() {
+                    const $btn = $(CONFIG.SELECTORS.BTN_RESET);
+                    $btn.addClass('loading').prop('disabled', true);
+
+                    try {
+                        const response = await $.get(
+                            UTILS.formatString('{0}?devicepwd={1}',
+                                CONFIG.API.RESET,
+                                $(CONFIG.SELECTORS.DEVICEPWD).val()
+                            )
+                        );
+                        const resJson = UTILS.parseJSON(response);
+
+                        this.handleResponse(resJson, {
+                            '0': 'Control success!\n',
+                            '-1': 'Wrong password!'
+                        });
+                    } catch (error) {
+                        UTILS.showMessage('Error', error.message, 'error');
+                    } finally {
+                        $btn.removeClass('loading').prop('disabled', false);
+                    }
+                },
+
+                async handleConnect() {
+                    const $btn = $(CONFIG.SELECTORS.BTN_CONNECT);
+                    $btn.addClass('loading').prop('disabled', true);
+
+                    try {
+                        const url = UTILS.formatString(
+                            '{0}?ssid={1}&pwd={2}&serverurl={3}&devicepwd={4}&devicename={5}&sw1name={6}&sw2name={7}',
+                            CONFIG.API.SET_WIFI,
+                            $(CONFIG.SELECTORS.SSID).val(),
+                            $(CONFIG.SELECTORS.INPUT_PWD).val(),
+                            $(CONFIG.SELECTORS.SERVERURL).val(),
+                            $(CONFIG.SELECTORS.DEVICEPWD).val(),
+                            $(CONFIG.SELECTORS.DEVICE_NAME_INPUT).val(),
+                            $(CONFIG.SELECTORS.SWITCH_1_NAME_INPUT).val(),
+                            $(CONFIG.SELECTORS.SWITCH_2_NAME_INPUT).val()
+                        );
+
+                        const response = await $.get(url);
+                        const resJson = UTILS.parseJSON(response);
+
+                        if (resJson.errCode === '0') {
+                            UTILS.showMessage(
+                                'Success',
+                                'Connect success!\nPlease connect to AP:[' + resJson.APName + ']\nand then open:[' + resJson.url + '] by web browser.',
+                                'success'
+                            );
+                        } else {
+                            UTILS.showMessage('Error', resJson.msg, 'error');
+                        }
+                    } catch (error) {
+                        UTILS.showMessage('Error', error.message, 'error');
+                    } finally {
+                        $btn.removeClass('loading').prop('disabled', false);
+                    }
+                },
+
+                async handleScanAP() {
+                    const $btn = $(CONFIG.SELECTORS.BTN_SCANAP);
+                    $btn.addClass('loading').prop('disabled', true);
+
+                    try {
+                        const response = await $.get(CONFIG.API.SCAN_AP);
+                        const apData = UTILS.parseJSON(response);
+                        
+                        // 检查接口返回格式
+                        if (apData && typeof apData === 'object') {
+                            this.renderAPList(apData);
+                        } else {
+                            UTILS.showMessage('Error', 'Invalid response format', 'error');
+                        }
+                    } catch (error) {
+                        UTILS.showMessage('Error', error.message, 'error');
+                    } finally {
+                        $btn.removeClass('loading').prop('disabled', false);
+                    }
+                },
+
+                handleResponse: function(resJson, messages) {
+                    const message = messages[resJson.errCode] || 'Unknown error!\n' + resJson.msg;
+                    const type = resJson.errCode === '0' ? 'success' : 'error';
+                    UTILS.showMessage(resJson.errCode === '0' ? 'Success' : 'Error', message, type);
+                },
+
+                renderAPList: function(apData) {
+                    const $aplist = $('#aplist');
+                    $aplist.empty();
+
+                    // 处理对象格式：{"ssid1": rssi1, "ssid2": rssi2, ...}
+                    if (typeof apData === 'object' && !Array.isArray(apData)) {
+                        const ssids = Object.keys(apData);
+                        if (ssids.length === 0) {
+                            UTILS.showMessage('Info', 'No WiFi networks found', 'info');
+                            return;
+                        }
+
+                        const template = $('#item-ap').html();
+                        ssids.forEach(function(ssid) {
+                            const rssi = apData[ssid];
+                            const html = UTILS.formatString(template, 0, 0, 20, 0, ssid + ' (' + rssi + 'dBm)');
+                            $aplist.append(html);
+                        });
+
+                        $('#selectwifi').addClass('active');
+
+                        $aplist.find('.chip').click(function() {
+                            const fullText = $(this).find('.chip-content').text();
+                            // 提取纯 SSID（去掉信号强度部分）
+                            const ssid = fullText.replace(/\s*\(\-?\d+dBm\)$/, '');
+                            $('#ssid').val(ssid);
+                            $('#selectwifi').removeClass('active');
+                        });
+                    } else if (Array.isArray(apData)) {
+                        // 处理数组格式（兼容旧格式）
+                        const template = $('#item-ap').html();
+                        apData.forEach(function(ap) {
+                            const ssid = typeof ap === 'string' ? ap : (ap.ssid || ap.SSID || ap.name || 'Unknown');
+                            const html = UTILS.formatString(template, 0, 0, 20, 0, ssid);
+                            $aplist.append(html);
+                        });
+
+                        $('#selectwifi').addClass('active');
+
+                        $aplist.find('.chip').click(function() {
+                            const ssid = $(this).find('.chip-content').text();
+                            $('#ssid').val(ssid);
+                            $('#selectwifi').removeClass('active');
+                        });
+                    } else {
+                        UTILS.showMessage('Error', 'Invalid AP list format', 'error');
+                    }
+                }
+            };
+        }
+
+        // ============================================
+        // 应用初始化
+        // ============================================
+        $(document).ready(function() {
+            console.log('App initializing...');
+
+            // 初始化数据模型
+            const deviceModel = createDeviceData();
+            const dataBuffer = createDataBuffer();
+
+            // 初始化图表
+            const chartManager = createChartManager('monitorChart').init();
+
+            // 初始化视图
+            const views = [
+                createSensorView(),
+                createControlView(),
+                createSettingsView(),
+                createDeviceInfoView()
+            ];
+
+            // 初始化控制器
+            const refreshController = createRefreshController(deviceModel, views, dataBuffer, chartManager);
+            const eventController = createEventController(refreshController);
+            eventController.bindEvents();
+
+            // 设置默认密码
+            $(CONFIG.SELECTORS.DEVICEPWD).val('pengping');
+
+            // 启动自动刷新
+            setTimeout(function() {
+                refreshController.refresh();
+                refreshController.start();
+            }, 100);
+
+            console.log('App initialized successfully.');
+        });
+    </script>
+</body>
+
+</html>

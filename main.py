@@ -38,7 +38,7 @@ defaulteSystemConfig = {"deviceusername": "admin", "devicepwd": "pengping", "wif
                         "pwm1max": 100, "pwm2freq": 25000, "pwm2default": 0, "pwm2min": 15, "pwm2max": 100,
                         "pwm3freq": 25000, "pwm3default": 0, "pwm3min": 15, "pwm3max": 100, "pwm4freq": 25000,
                         "pwm4default": 0, "pwm4min": 15, "pwm4max": 100, "sw1": True, "sw2": False,
-                        "fanHThreshold": 36, "fanLThreshold": 31.5,
+                        "fineHThreshold": 36, "fineLThreshold": 31.5,
                         "modbusSlaveAddr": 6, "modbusBadud": 38400, "deviceId": ""}
 
 systemConfig = db.get("systemConfig")
@@ -262,16 +262,16 @@ def handler(request):
     #'../status?mode=set&devicepwd={0}&r={1}&g={2}&b={3}&sw1={4}&sw2={5}
     elif "mode" in request.args and request.args["mode"] == "set":
         res = {"errCode": "0", "msg": "set finish."}
-        if "fanHThreshold" in request.args:
-            systemConfig["fanHThreshold"] = float(request.args["fanHThreshold"])
-        if "fanLThreshold" in request.args:
-            systemConfig["fanLThreshold"] = float(request.args["fanLThreshold"])
-        if "pwm1freq" in request.args:
-            systemConfig["pwm1freq"] = int(request.args["pwm1freq"])
-        if "pwm1min" in request.args:
-            systemConfig["pwm1min"] = int(request.args["pwm1min"])
-        if "pwm1max" in request.args:
-            systemConfig["pwm1max"] = int(request.args["pwm1max"])
+        if "fineHThreshold" in request.args:
+            systemConfig["fineHThreshold"] = float(request.args["fineHThreshold"])
+        if "fineLThreshold" in request.args:
+            systemConfig["fineLThreshold"] = float(request.args["fineLThreshold"])
+        if "pwmFreq" in request.args:
+            systemConfig["pwm1freq"] = int(request.args["pwmFreq"])
+        if "pwmMinDuty" in request.args:
+            systemConfig["pwm1min"] = int(request.args["pwmMinDuty"])
+        if "pwmMaxDuty" in request.args:
+            systemConfig["pwm1max"] = int(request.args["pwmMaxDuty"])
         if "sw1" in request.args:
             sw1_val_str = str(request.args["sw1"]).lower()
             if sw1_val_str in ["true", "1"]:
@@ -292,9 +292,10 @@ def handler(request):
         if "sprayPeriod" in request.args:
             systemConfig["sprayPeriod"] = request.args["sprayPeriod"]		
         db.save({"systemConfig": ujson.dumps(systemConfig)})
+
         bspInstance.setConfig(systemConfig)
-        print("set config finish: fanHThreshold={}, fanLThreshold={}, pwm1freq={}, pwm1min={}, pwm1max={}, sw1={}, sw2={}".format(
-            systemConfig.get("fanHThreshold"), systemConfig.get("fanLThreshold"),
+        print("set config finish: fineHThreshold={}, fineLThreshold={}, pwm1freq={}, pwm1min={}, pwm1max={}, sw1={}, sw2={}".format(
+            systemConfig.get("fineHThreshold"), systemConfig.get("fineLThreshold"),
             systemConfig.get("pwm1freq"), systemConfig.get("pwm1min"), systemConfig.get("pwm1max"),
             systemConfig.get("sw1"), systemConfig.get("sw2")))
         reloadConfigFSM()
