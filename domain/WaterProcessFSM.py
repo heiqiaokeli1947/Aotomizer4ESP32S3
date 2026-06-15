@@ -35,7 +35,7 @@ class FSM:
         
         self.lastAddWaterTime = 0
         self.airConditionerStatus = 0
-        
+
         self.inWaterTDS = 0
         self.waterTankTDS = 0
         self.waterTDSThreshold = self.config["waterTDSThreshold"]
@@ -111,6 +111,7 @@ class FSM:
             print("[OK]fill water to full success")
             self.lastAddWaterTime = self.runTimeCounter
             self.totalAddWaterCount += 1
+            self.saveData()
             self.status = STATUS.READY
             # 关闭排水电磁阀-->转移到self.setDeviceToReadyStatus()
             # 可以依赖Ready状态的设置，放这里是为了快速响应
