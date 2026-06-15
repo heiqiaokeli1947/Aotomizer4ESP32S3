@@ -72,7 +72,7 @@ class FSM:
                "airConditionerStatus":self.airConditionerStatus}
 
     def saveData(self):
-        db.save({"totalSprayCount":int(self.totalSprayCount)})
+        db.save({"totalSprayCount":str(self.totalSprayCount)})
 
     def reloadConfig(self):
         print("reload config:{}".format(self.config))
@@ -157,6 +157,7 @@ class FSM:
             self.status = STATUS.OVER_TEMP
             self.lastOverTempTime = self.runTimeCounter
             self.totalSprayCount += 1
+            self.saveData()
             # 根据温度计算额外喷雾时间: >38+1s, >39+2s, >40+3s, >41+4s
             extra = 0
             if self.finTemp > 41:
