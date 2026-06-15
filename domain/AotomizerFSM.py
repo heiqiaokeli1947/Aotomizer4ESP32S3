@@ -72,7 +72,7 @@ class FSM:
                "airConditionerStatus":self.airConditionerStatus}
 
     def saveData(self):
-        db.save({"totalSprayCount":str(self.totalSprayCount)})
+        db.save({"totalSprayCount":int(self.totalSprayCount)})
 
     def reloadConfig(self):
         print("reload config:{}".format(self.config))

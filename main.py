@@ -32,7 +32,7 @@ defaulteSystemConfig = {"deviceusername": "admin", "devicepwd": "pengping", "wif
                         "id": 1, "wifiname": "cissco_2g", "ver": "1.1", "serverurl": "192.168.1.124",
                         "APNetMask": "255.255.255.0", "altitude": 498, "wifinameDefault": "IOT_2G",
                         "latitude": 30.67831, "serverurlDefault": "http://3a892544f7.qicp.vip", "APPwd": "Changeme_123",
-                        "devicename": "空调喷雾控制器", "num1name": "Tree temprature", "rangename": "Tree light",
+                        "devicename": "Aotomizer", "num1name": "Tree temprature", "rangename": "Tree light",
                         "mode": "normal", "sw1name": "S1", "wifipwd": "13438045703", "APGateway": "192.168.1.1",
                         "APIP": "123", "longitude": 104.0375, "pwm1freq": 25000, "pwm1default": 0, "pwm1min": 15,
                         "pwm1max": 100, "pwm2freq": 25000, "pwm2default": 0, "pwm2min": 15, "pwm2max": 100,
@@ -278,11 +278,11 @@ def handler(request):
                 systemConfig["sw2"] = False
 			
         if "minAddWaterInterval" in request.args:
-            systemConfig["minAddWaterInterval"] = request.args["minAddWaterInterval"]
+            systemConfig["minAddWaterInterval"] = int(request.args["minAddWaterInterval"])
         if "minSparyTime" in request.args:
-            systemConfig["minSparyTime"] = request.args["minSparyTime"]
+            systemConfig["minSparyTime"] = int(request.args["minSparyTime"])
         if "sprayPeriod" in request.args:
-            systemConfig["sprayPeriod"] = request.args["sprayPeriod"]
+            systemConfig["sprayPeriod"] = int(request.args["sprayPeriod"])
         print("new systemConfig:{}".format(systemConfig))		
         db.save({"systemConfig": ujson.dumps(systemConfig)})
 

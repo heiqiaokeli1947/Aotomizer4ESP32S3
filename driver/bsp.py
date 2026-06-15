@@ -91,17 +91,10 @@ class BSP:
 
     def initHW(self):
         print("init pwm...")
-        # PWM控制
+        self.__pwmWaterBump = PWM(Pin(10),freq=self.config["pwm1freq"], duty=self.config["pwm1default"])
         self.__fanSpeed = 0
-        self.__fan1PwmPin = PWM(Pin(46),freq=self.config["pwm1freq"], duty=self.config["pwm1default"])
-        self.__fan2PwmPin = PWM(Pin(9),freq=self.config["pwm2freq"], duty=self.config["pwm2default"])
-        # 初始化PWM对象
-        self.__fan1PwmPin.init(freq=self.config["pwm1freq"], duty=self.config["pwm1default"])
-        self.__fan2PwmPin.init(freq=self.config["pwm2freq"], duty=self.config["pwm2default"])
-
-        self.__pwmWaterBump = PWM(Pin(10),freq=self.config["pwm2freq"], duty=self.config["pwm2default"])
-
-
+        self.__fan1PwmPin = PWM(Pin(46),freq=self.config["pwm2freq"], duty=self.config["pwm2default"])
+        self.__fan2PwmPin = PWM(Pin(9),freq=self.config["pwm3freq"], duty=self.config["pwm3default"])
 
     def setLEDArray(self, color):
         for i in range(1):
