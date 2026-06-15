@@ -39,7 +39,7 @@ defaulteSystemConfig = {"deviceusername": "admin", "devicepwd": "pengping", "wif
                         "pwm3freq": 25000, "pwm3default": 0, "pwm3min": 15, "pwm3max": 100, "pwm4freq": 25000,
                         "pwm4default": 0, "pwm4min": 15, "pwm4max": 100, "sw1": True, "sw2": False,
                         "fineHThreshold": 36, "fineLThreshold": 31.5,
-                        "modbusSlaveAddr": 6, "modbusBadud": 38400, "deviceId": ""}
+                        "modbusSlaveAddr": 6, "modbusBadud": 38400, "deviceId": "", "waterTDSThreshold": 10,"waterDischargeTimeOut": 2400,"waterFillTimeOut": 850}
 
 systemConfig = db.get("systemConfig")
 
