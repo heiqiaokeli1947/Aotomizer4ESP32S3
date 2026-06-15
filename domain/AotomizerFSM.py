@@ -33,36 +33,18 @@ class FSM:
         else:
             db.save({"totalSprayCount":str(self.totalSprayCount)})
 
-        self.pwmFreq = 25000
-        if db.get("pwmFreq") is not None:
-            self.pwmFreq = int(db.get("pwmFreq"))
-        else:
-            db.save({"pwmFreq":str(self.pwmFreq)})
+        self.pwmFreq = self.config["pwm1freq"]
 
-        self.pwmMinDuty = 15
-        if db.get("pwmMinDuty") is not None:
-            self.pwmMinDuty = int(db.get("pwmMinDuty"))
-        else:
-            db.save({"pwmMinDuty":str(self.pwmMinDuty)})
+        self.pwmMinDuty = self.config["pwm1min"]
 
-        self.pwmMaxDuty = 95
-        if db.get("pwmMaxDuty") is not None:
-            self.pwmMaxDuty = int(db.get("pwmMaxDuty"))
-        else:
-            db.save({"pwmMaxDuty":str(self.pwmMaxDuty)})
+        self.pwmMaxDuty = self.config["pwm1max"]
+
 
         self.lastSprayTime = 0
-        self.sprayPeriod = 40
-        if db.get("sprayPeriod") is not None:
-            self.sprayPeriod = int(db.get("sprayPeriod"))
-        else:
-            db.save({"sprayPeriod":str(self.sprayPeriod)})
+        self.sprayPeriod = self.config["sprayPeriod"]
 
-        self.minSparyTime = 3
-        if db.get("minSparyTime") is not None:
-            self.minSparyTime = int(db.get("minSparyTime"))
-        else:
-            db.save({"minSparyTime":str(self.minSparyTime)})
+
+        self.minSparyTime = self.config["minSparyTime"]
         
         self.spray1StartTime = 0
         self.spray1TimeOut = 5
@@ -77,24 +59,12 @@ class FSM:
         self.finTemp = 0
         self.humity = 0
         self.wetBulbTemp = 0
-        self.fineLThreshold = 37.5
-        if db.get("fineLThreshold") is not None:
-            self.fineLThreshold = float(db.get("fineLThreshold"))
-        else:
-            db.save({"fineLThreshold":str(self.fineLThreshold)})
-
-        self.fineHThreshold = 42.0
-        if db.get("fineHThreshold") is not None:
-            self.fineHThreshold = float(db.get("fineHThreshold"))
-        else:
-            db.save({"fineHThreshold":str(self.fineHThreshold)})
-
+        self.fineLThreshold = self.config["fineLThreshold"]
+        self.fineHThreshold = self.config["fineHThreshold"]
+    
         self.roomTemp = 0
         self.roomTempThreshold = 32
-
         self.lastOverTempTime = 0
-
-        
 
         self.airConditionerStatus = enum.Switch.OFF
 
@@ -111,39 +81,22 @@ class FSM:
     
     def getStatus(self):
         return {"totalSprayCount":self.totalSprayCount,
-               "totalRunTime":self.totalRunTime,
                "fineTempThreshold":self.fineLThreshold,
                "fineTemp":self.finTemp,
-               "airConditionerStatus":self.airConditionerStatus,
-               "pwmFreq":self.pwmFreq,
-               "pwmMinDuty":self.pwmMinDuty,
-               "pwmMaxDuty":self.pwmMaxDuty,
-               "sprayPeriod":self.sprayPeriod,
-               "minSparyTime":self.minSparyTime,
-               "fineLThreshold":self.fineLThreshold,
-               "fineHThreshold":self.fineHThreshold}
+               "airConditionerStatus":self.airConditionerStatus}
 
     def saveData(self):
-        db.save({"totalSprayCount":str(self.totalSprayCount),
-                 "totalRunTime":str(self.totalRunTime),
-                 "pwmFreq":str(self.pwmFreq),
-                 "pwmMinDuty":str(self.pwmMinDuty),
-                 "pwmMaxDuty":str(self.pwmMaxDuty),
-                 "sprayPeriod":str(self.sprayPeriod),
-                 "minSparyTime":str(self.minSparyTime),
-                 "fineLThreshold":str(self.fineLThreshold),
-                 "fineHThreshold":str(self.fineHThreshold)})
+        db.save({"totalSprayCount":str(self.totalSprayCount)})
 
     def reloadConfig(self):
-        res = db.multiGet(["pwmFreq","pwmMinDuty","pwmMaxDuty","sprayPeriod","minSparyTime","fineLThreshold","fineHThreshold"])
-        print("reload config:{}".format(res))
-        self.pwmFreq = int(res["pwmFreq"])
-        self.pwmMinDuty = int(res["pwmMinDuty"])
-        self.pwmMaxDuty = int(res["pwmMaxDuty"])
-        self.sprayPeriod = int(res["sprayPeriod"])
-        self.minSparyTime = int(res["minSparyTime"])
-        self.fineLThreshold = float(res["fineLThreshold"])
-        self.fineHThreshold = float(res["fineHThreshold"])
+        print("reload config:{}".format(self.config))
+        self.pwmFreq = int(self.config["pwm1freq"])
+        self.pwmMinDuty = int(self.config["pwm1min"])
+        self.pwmMaxDuty = int(self.config["pwm1max"])
+        self.sprayPeriod = int(self.config["sprayPeriod"])
+        self.minSparyTime = int(self.config["minSparyTime"])
+        self.fineLThreshold = float(self.config["fineLThreshold"])
+        self.fineHThreshold = float(self.config["fineHThreshold"])
 
     def close(self):
         print("Atomizer FSM:close")

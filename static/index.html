@@ -781,10 +781,18 @@
 
                         // 喷雾状态
                         spray: {
-                            airConditionerStatus: rawData.airConditionerStatus || '---',
+                            airConditionerStatus: (rawData.airConditionerStatus === 0 || rawData.airConditionerStatus === 1)
+                                ? (rawData.airConditionerStatus === 1 ? 'ON' : 'OFF')
+                                : (rawData.airConditionerStatus || '---'),
                             totalSprayCount: rawData.totalSprayCount || 0,
                             totalAddWaterCount: rawData.totalAddWaterCount || 0,
-                            waterMark: rawData.waterMark || '---',
+                            waterMark: (function() {
+                                var wm = rawData.waterMark;
+                                if (wm === 1) return '空';
+                                if (wm === 2) return '正常';
+                                if (wm === 3) return '满';
+                                return wm || '---';
+                            })(),
                             fineTempThreshold: rawData.fineTempThreshold || invalid,
                             addWaterMinInterval: rawData.minAddWaterInterval || 0
                         },

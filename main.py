@@ -78,8 +78,6 @@ else:
 
 
 bspInstance = bsp.BSP()
-bspInstance2 = bsp.BSP()
-print(bspInstance == bspInstance2)
 bspInstance.setConfig(systemConfig)
 
 print("init FSM...")
@@ -239,13 +237,6 @@ def handler(request):
             res["sw1"] = True
         if "sw2" not in res:
             res["sw2"] = False
-        # res["mode"] = systemConfig["mode"]
-        # res["sw1name"] = systemConfig["sw1name"]
-        # res["sw2name"] = systemConfig["sw2name"]
-        # res["devicename"] = systemConfig["devicename"]
-        # res["serverurl"] = systemConfig["serverurl"]
-        # res["fineHThreshold"] = systemConfig["fineHThreshold"]
-        # res["fineLThreshold"] = systemConfig["fineLThreshold"]
 
         res["temp"] = bspInstance.getSensorData().temp
         res["humi"] = bspInstance.getSensorData().humi
@@ -290,7 +281,8 @@ def handler(request):
         if "minSparyTime" in request.args:
             systemConfig["minSparyTime"] = request.args["minSparyTime"]
         if "sprayPeriod" in request.args:
-            systemConfig["sprayPeriod"] = request.args["sprayPeriod"]		
+            systemConfig["sprayPeriod"] = request.args["sprayPeriod"]
+        print("new systemConfig:{}".format(systemConfig))		
         db.save({"systemConfig": ujson.dumps(systemConfig)})
 
         bspInstance.setConfig(systemConfig)
