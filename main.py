@@ -2,45 +2,80 @@ import machine
 from machine import Timer
 from lib.microdot import Microdot, send_file
 import domain.wifi as wifi
-
 import domain.fileUtils as fileUtils
 import utime, ujson
 import driver.bsp as bsp
-
 import domain.AotomizerFSM as aotomizerFSM
 import domain.WaterProcessFSM as waterProcessFSM
 import domain.DBUtils as db
 import _thread
 import gc
 import micropython as mp
-aotomizerCounter = 0  #雾化器运行计数器
-#固件使用：ESP32_GENERIC_S3-SPIRAM_OCT-20250415-v1.25.0.bin
+
+# 固件使用：ESP32_GENERIC_S3-SPIRAM_OCT-20250415-v1.25.0.bin
 LEDArrayColor = (255, 0, 0)
 # from machine import RTC
-
 # rtc = RTC()
-# rtc.datetime((2024, 1, 1, 12, 0, 0, 0, 0)) # set a specific date and time
-# print(rtc.datetime()) # get date and time
+# rtc.datetime((2024, 1, 1, 12, 0, 0, 0, 0))
+# print(rtc.datetime())
 
 
-#default systemConfig
+# default systemConfig
 print("software version:202606141506")
 print("start begin...")
 
-defaulteSystemConfig = {"deviceusername": "admin", "devicepwd": "pengping", "wifipwdDefault": "13438045703",
-                        "devicetype": "Micropython", "APName": "Atomizer", "sw2name": "S2",
-                        "APNetMask": "255.255.255.0", "altitude": 498, "wifinameDefault": "IOT_2G",
-                        "latitude": 30.67831, "serverurl": "http://3a892544f7.qicp.vip", "APPwd": "Changeme_123",
-                        "devicename": "Aotomizer", 
-                        "mode": "normal", "sw1name": "S1", "wifipwd": "13438045703", "APGateway": "192.168.1.1",
-                        "APIP": "123", "longitude": 104.0375, "pwm1freq": 25000, "pwm1default": 0, "pwm1min": 15,
-                        "pwm1max": 100, "pwm2freq": 25000, "pwm2default": 0, "pwm2min": 15, "pwm2max": 100,
-                        "pwm3freq": 25000, "pwm3default": 0, "pwm3min": 15, "pwm3max": 100, "pwm4freq": 25000,
-                        "pwm4default": 0, "pwm4min": 15, "pwm4max": 100, "sw1": True, "sw2": False,
-                        "fineHThreshold": 36, "fineLThreshold": 31.5,
-                        "modbusSlaveAddr": 6, "modbusBadud": 38400, "deviceId": "", "waterTDSThreshold": 10,
-                        "waterDischargeTimeOut": 60,"waterFillTimeOut": 850,"minAddWaterInterval": 2400,
-                        "sprayPeriod": 40,"minSparyTime": 5,"maxSparyTime": 12}
+defaulteSystemConfig = {
+    "deviceusername": "admin",
+    "devicepwd": "pengping",
+    "wifiname": "cissco_2g",
+    "wifipwd": "13438045703",
+    "wifipwdDefault": "13438045703",
+    "devicetype": "Micropython",
+    "APName": "Atomizer",
+    "sw2name": "S2",
+    "APNetMask": "255.255.255.0",
+    "altitude": 498,
+    "wifinameDefault": "IOT_2G",
+    "latitude": 30.67831,
+    "serverurl": "http://3a892544f7.qicp.vip",
+    "APPwd": "Changeme_123",
+    "devicename": "Aotomizer",
+    "mode": "normal",
+    "sw1name": "S1",
+    "APGateway": "192.168.1.1",
+    "APIP": "123",
+    "longitude": 104.0375,
+    "pwm1freq": 25000,
+    "pwm1default": 0,
+    "pwm1min": 15,
+    "pwm1max": 100,
+    "pwm2freq": 25000,
+    "pwm2default": 0,
+    "pwm2min": 15,
+    "pwm2max": 100,
+    "pwm3freq": 25000,
+    "pwm3default": 0,
+    "pwm3min": 15,
+    "pwm3max": 100,
+    "pwm4freq": 25000,
+    "pwm4default": 0,
+    "pwm4min": 15,
+    "pwm4max": 100,
+    "sw1": True,
+    "sw2": False,
+    "fineHThreshold": 36,
+    "fineLThreshold": 31.5,
+    "modbusSlaveAddr": 6,
+    "modbusBadud": 38400,
+    "deviceId": "",
+    "waterTDSThreshold": 10,
+    "waterDischargeTimeOut": 60,
+    "waterFillTimeOut": 850,
+    "minAddWaterInterval": 2400,
+    "sprayPeriod": 40,
+    "minSparyTime": 5,
+    "maxSparyTime": 12
+}
 
 systemConfig = db.get("systemConfig")
 
@@ -48,7 +83,8 @@ if systemConfig is not None:
     systemConfig = ujson.loads(systemConfig)
     print("systemConfig in DB:{}".format(systemConfig))
 else:
-    print("create default systemConfig:{}...".format(ujson.dumps(defaulteSystemConfig)))
+    print("create default systemConfig:{}...".format(
+        ujson.dumps(defaulteSystemConfig)))
     db.save({"systemConfig": ujson.dumps(defaulteSystemConfig)})
     systemConfig = ujson.loads(db.get("systemConfig"))
 
@@ -56,7 +92,6 @@ else:
 if "deviceId" not in systemConfig or not systemConfig["deviceId"]:
     systemConfig["deviceId"] = machine.unique_id().hex().upper()
     print("Generated device UUID:{}".format(systemConfig["deviceId"]))
-    # 保存到数据库
     db.save({"systemConfig": ujson.dumps(systemConfig)})
 else:
     print("Device UUID:{}".format(systemConfig["deviceId"]))
@@ -70,7 +105,7 @@ def createDefaultConfig():
 
 startTime = utime.time()
 totalRunTime = 0
-runTimeCounter = 0
+bootTime = startTime  # 记录启动时间，用于计算本次开机运行时间
 
 if db.get("totalRunTime") is not None:
     totalRunTime = int(db.get("totalRunTime"))
@@ -82,44 +117,50 @@ bspInstance = bsp.BSP()
 bspInstance.setConfig(systemConfig)
 
 print("init FSM...")
-fsmList={"aotomizerFSM":aotomizerFSM.FSM(bspInstance, systemConfig),"waterProcessFSM":waterProcessFSM.FSM(bspInstance, systemConfig)}
+fsmList = {
+    "aotomizerFSM": aotomizerFSM.FSM(bspInstance, systemConfig),
+    "waterProcessFSM": waterProcessFSM.FSM(bspInstance, systemConfig)
+}
 
 
 def runFSM():
     for item in fsmList.values():
         item.run()
 
+
 def closeFSM():
     for item in fsmList.values():
         item.close()
+
 
 def reloadConfigFSM():
     for item in fsmList.values():
         item.reloadConfig()
 
 
-# 初始化看门狗定时器，超时时间为30秒
+# 初始化看门狗定时器，超时时间为60秒
 wdt = machine.WDT(timeout=60000)
 
 
 def feedDog(timer):
-    global runTimeCounter
+    global loopCounter
     wdt.feed()
-    print("{}:feed dog-----------".format(runTimeCounter))
+    print("{}:feed dog-----------".format(loopCounter))
 
 
 WDTTimer = Timer(0)
 WDTTimer.init(mode=Timer.PERIODIC, period=15000, callback=feedDog)
 
 
-def saveData(self):
+def saveData():
     global totalRunTime
     db.save({"totalRunTime": str(totalRunTime)})
 
 
-#超时或者自动重连上了就会自动退出
+# 超时或者自动重连上了就会自动退出
 def ModeTimerHandler(timer):
-    print("config mode left {}s to exit.".format(MAX_CONFIG_MODE_TIME_IN_SECONDS - (utime.time() - whenGotoConfigMode)))
+    print("config mode left {}s to exit.".format(
+        MAX_CONFIG_MODE_TIME_IN_SECONDS - (utime.time() - whenGotoConfigMode)))
     status = wifi.isConnected()
     if status or ((utime.time() - whenGotoConfigMode) > MAX_CONFIG_MODE_TIME_IN_SECONDS):
         print("reboot after 5s.")
@@ -130,20 +171,20 @@ def ModeTimerHandler(timer):
 
 def createConfigTimer(seconds):
     modeTimer = Timer(3)
-    modeTimer.init(mode=Timer.PERIODIC, period=seconds * 1000, callback=ModeTimerHandler)
+    modeTimer.init(mode=Timer.PERIODIC, period=seconds * 1000,
+                   callback=ModeTimerHandler)
 
 
 print("start finish.")
 
-#wifi.startAP(systemConfig["APName"],"880612")
+# wifi.startAP(systemConfig["APName"],"880612")
 
 MAX_CONFIG_MODE_TIME_IN_SECONDS = 300
 whenGotoConfigMode = 0
-whenGotoNormalMode = 0
 
-#启动直接则尝试连接wifi，连接成功则直接连接，如果连接失败，则启动AP模式，AP模式最长等待300s
-#如果300s仍然没有完成配置，则直接重启，如此往复
-#在配置模式，配置成功wifi后，10s后自动重启
+# 启动直接则尝试连接wifi，连接成功则直接连接，如果连接失败，则启动AP模式
+# AP模式最长等待300s，如果300s仍然没有完成配置，则直接重启，如此往复
+# 在配置模式，配置成功wifi后，10s后自动重启
 
 gotIpLast = ""
 gotIpNow = ""
@@ -156,10 +197,11 @@ def broadcastIPInfo(name):
     while True:
         print("{}:detect IP info...".format(name))
         gotIpNow = wifi.getStationIP()
-        if gotIpNow and gotIpLast != gotIpNow:  # 检查IP获取是否成功
+        if gotIpNow and gotIpLast != gotIpNow:
             broadcastName = systemConfig["devicename"] + "_" + gotIpNow
             wifi.startAP(broadcastName, systemConfig["APPwd"])
-            print("---------------IP changed. now:{}, last:{}".format(gotIpNow, gotIpLast))
+            print("---------------IP changed. now:{}, last:{}".format(
+                gotIpNow, gotIpLast))
             gotIpLast = gotIpNow
         elif gotIpNow:
             print("get IP success:{}".format(gotIpNow))
@@ -172,7 +214,8 @@ def broadcastIPInfo(name):
         utime.sleep_ms(60000)
 
 
-if "normal" == systemConfig["mode"] and wifi.connectToWifi(systemConfig["wifiname"], systemConfig["wifipwd"]):
+if "normal" == systemConfig["mode"] and wifi.connectToWifi(
+        systemConfig["wifiname"], systemConfig["wifipwd"]):
     print("connect wifi success. broadcast node ip.")
     _thread.start_new_thread(broadcastIPInfo, ("Thread-broadcastIPInfo",))
 else:
@@ -205,7 +248,6 @@ def handler(request):
         return 'file name invalid:{}'.format(request.path), 404
 
     if '..' in fileName or not fileUtils.isFileExist("/static/", fileName):
-        # directory traversal is not allowed
         return 'Not found:{}'.format(fileName), 404
     return send_file('/static/' + fileName)
 
@@ -213,7 +255,6 @@ def handler(request):
 @app.route('/static/<path:path>')
 def handler(request, path):
     if '..' in path or not fileUtils.isFileExist("/static/", path):
-        # directory traversal is not allowed
         return 'Not found', 404
     return send_file('/static/' + path)
 
@@ -222,17 +263,18 @@ def handler(request, path):
 def handler(request):
     global whenGotoConfigMode
     global totalRunTime
-    global runCounter
-    global pm5350Data
     global systemConfig
     whenGotoConfigMode = utime.time()
     if "devicepwd" not in request.args or request.args["devicepwd"] != systemConfig["devicepwd"]:
         res = {"errCode": "-1", "msg": "invalid device password."}
         return ujson.dumps(res)
     elif "mode" in request.args and request.args["mode"] == "get":
-        res = {"errCode": "0", "mode": systemConfig.get("mode", "normal"),
-               "sw1": systemConfig.get("sw1", True),
-               "sw2": systemConfig.get("sw2", False)}
+        res = {
+            "errCode": "0",
+            "mode": systemConfig.get("mode", "normal"),
+            "sw1": systemConfig.get("sw1", True),
+            "sw2": systemConfig.get("sw2", False)
+        }
         res.update(systemConfig)
         if "sw1" not in res:
             res["sw1"] = True
@@ -245,52 +287,139 @@ def handler(request):
         res["presure"] = bspInstance.getSensorData().presure
         res["luminance"] = bspInstance.getSensorData().luminance
         res["pm25"] = bspInstance.getSensorData().pm25
-        res["runTime"] = runCounter
+        res["runTime"] = utime.time() - bootTime  # 本次开机运行时间（秒）
         res["totalRunTime"] = totalRunTime
         res.update(fsmList["aotomizerFSM"].getStatus())
         res.update(fsmList["waterProcessFSM"].getStatus())
 
         return ujson.dumps(res)
-    #'../status?mode=set&devicepwd={0}&r={1}&g={2}&b={3}&sw1={4}&sw2={5}
     elif "mode" in request.args and request.args["mode"] == "set":
         res = {"errCode": "0", "msg": "set finish."}
+
+        # 温度阈值参数
         if "fineHThreshold" in request.args:
             systemConfig["fineHThreshold"] = float(request.args["fineHThreshold"])
         if "fineLThreshold" in request.args:
             systemConfig["fineLThreshold"] = float(request.args["fineLThreshold"])
+
+        # 兼容旧接口 PWM 参数
         if "pwmFreq" in request.args:
             systemConfig["pwm1freq"] = int(request.args["pwmFreq"])
         if "pwmMinDuty" in request.args:
             systemConfig["pwm1min"] = int(request.args["pwmMinDuty"])
         if "pwmMaxDuty" in request.args:
             systemConfig["pwm1max"] = int(request.args["pwmMaxDuty"])
+
+        # PWM1 参数
+        if "pwm1freq" in request.args:
+            systemConfig["pwm1freq"] = int(request.args["pwm1freq"])
+        if "pwm1min" in request.args:
+            systemConfig["pwm1min"] = int(request.args["pwm1min"])
+        if "pwm1max" in request.args:
+            systemConfig["pwm1max"] = int(request.args["pwm1max"])
+        if "pwm1default" in request.args:
+            systemConfig["pwm1default"] = int(request.args["pwm1default"])
+
+        # PWM2 参数
+        if "pwm2freq" in request.args:
+            systemConfig["pwm2freq"] = int(request.args["pwm2freq"])
+        if "pwm2min" in request.args:
+            systemConfig["pwm2min"] = int(request.args["pwm2min"])
+        if "pwm2max" in request.args:
+            systemConfig["pwm2max"] = int(request.args["pwm2max"])
+        if "pwm2default" in request.args:
+            systemConfig["pwm2default"] = int(request.args["pwm2default"])
+
+        # PWM3 参数
+        if "pwm3freq" in request.args:
+            systemConfig["pwm3freq"] = int(request.args["pwm3freq"])
+        if "pwm3min" in request.args:
+            systemConfig["pwm3min"] = int(request.args["pwm3min"])
+        if "pwm3max" in request.args:
+            systemConfig["pwm3max"] = int(request.args["pwm3max"])
+        if "pwm3default" in request.args:
+            systemConfig["pwm3default"] = int(request.args["pwm3default"])
+
+        # PWM4 参数
+        if "pwm4freq" in request.args:
+            systemConfig["pwm4freq"] = int(request.args["pwm4freq"])
+        if "pwm4min" in request.args:
+            systemConfig["pwm4min"] = int(request.args["pwm4min"])
+        if "pwm4max" in request.args:
+            systemConfig["pwm4max"] = int(request.args["pwm4max"])
+        if "pwm4default" in request.args:
+            systemConfig["pwm4default"] = int(request.args["pwm4default"])
+
+        # 开关状态参数
         if "sw1" in request.args:
             sw1_val_str = str(request.args["sw1"]).lower()
             if sw1_val_str in ["true", "1"]:
                 systemConfig["sw1"] = True
             else:
                 systemConfig["sw1"] = False
+            print("Switch status changed: sw1={}".format(systemConfig["sw1"]))
+
         if "sw2" in request.args:
             sw2_val_str = str(request.args["sw2"]).lower()
             if sw2_val_str in ["true", "1"]:
                 systemConfig["sw2"] = True
             else:
                 systemConfig["sw2"] = False
-			
+            print("Switch status changed: sw2={}".format(systemConfig["sw2"]))
+
+        # 开关名称参数
+        if "sw1name" in request.args:
+            systemConfig["sw1name"] = request.args["sw1name"]
+        if "sw2name" in request.args:
+            systemConfig["sw2name"] = request.args["sw2name"]
+
+        # 喷雾和加水参数
         if "minAddWaterInterval" in request.args:
             systemConfig["minAddWaterInterval"] = int(request.args["minAddWaterInterval"])
         if "minSparyTime" in request.args:
             systemConfig["minSparyTime"] = int(request.args["minSparyTime"])
+        if "maxSparyTime" in request.args:
+            systemConfig["maxSparyTime"] = int(request.args["maxSparyTime"])
         if "sprayPeriod" in request.args:
             systemConfig["sprayPeriod"] = int(request.args["sprayPeriod"])
-        print("new systemConfig:{}".format(systemConfig))		
+
+        # 设备参数
+        if "deviceusername" in request.args:
+            systemConfig["deviceusername"] = request.args["deviceusername"]
+        if "devicename" in request.args:
+            systemConfig["devicename"] = request.args["devicename"]
+        if "devicepwd" in request.args:
+            systemConfig["devicepwd"] = request.args["devicepwd"]
+
+        # WiFi 参数
+        if "wifiname" in request.args:
+            systemConfig["wifiname"] = request.args["wifiname"]
+        if "wifipwd" in request.args:
+            systemConfig["wifipwd"] = request.args["wifipwd"]
+
+        # AP 热点参数
+        if "APName" in request.args:
+            systemConfig["APName"] = request.args["APName"]
+        if "APPwd" in request.args:
+            systemConfig["APPwd"] = request.args["APPwd"]
+        if "APIP" in request.args:
+            systemConfig["APIP"] = request.args["APIP"]
+
+        # 服务器参数
+        if "serverurl" in request.args:
+            systemConfig["serverurl"] = request.args["serverurl"]
+
+        # Modbus 参数
+        if "modbusBadud" in request.args:
+            systemConfig["modbusBadud"] = int(request.args["modbusBadud"])
+        if "modbusSlaveAddr" in request.args:
+            systemConfig["modbusSlaveAddr"] = int(request.args["modbusSlaveAddr"])
+
+        print("new systemConfig:{}".format(systemConfig))
         db.save({"systemConfig": ujson.dumps(systemConfig)})
 
         bspInstance.setConfig(systemConfig)
-        print("set config finish: fineHThreshold={}, fineLThreshold={}, pwm1freq={}, pwm1min={}, pwm1max={}, sw1={}, sw2={}".format(
-            systemConfig.get("fineHThreshold"), systemConfig.get("fineLThreshold"),
-            systemConfig.get("pwm1freq"), systemConfig.get("pwm1min"), systemConfig.get("pwm1max"),
-            systemConfig.get("sw1"), systemConfig.get("sw2")))
+        print("set config finish")
         reloadConfigFSM()
         return ujson.dumps(res)
     else:
@@ -310,18 +439,18 @@ def handler(request):
         return "{}"
 
 
-#setwifi?ssid=3&pwd=123456&serverurl=192.168.1.124&devicepwd=pengping&devicename=----&sw1name=----&sw2name=----
+# setwifi?ssid=3&pwd=123456&serverurl=192.168.1.124&devicepwd=pengping
+# &devicename=----&sw1name=----&sw2name=----
 @app.get('/setwifi')
 def handler(request):
     global whenGotoConfigMode
     whenGotoConfigMode = utime.time()
     res = {"errCode": "0", "msg": "success", "APName": "APName", "url": "url"}
-    print("scanap:path:{} ".format(request.path))
-    print("scanap:args:{}".format(request.args))
+    print("setwifi:path:{} ".format(request.path))
+    print("setwifi:args:{}".format(request.args))
     ssid = request.args["ssid"]
     pwd = request.args["pwd"]
     if wifi.testWifiConnect(ssid, pwd):
-        systemConfig["mode"] = "normal"
         systemConfig["sw1name"] = request.args["sw1name"]
         systemConfig["sw2name"] = request.args["sw2name"]
         systemConfig["devicename"] = request.args["devicename"]
@@ -330,6 +459,21 @@ def handler(request):
         systemConfig["wifiname"] = ssid
         systemConfig["wifipwd"] = pwd
         systemConfig["mode"] = "normal"
+
+        # 可选参数
+        if "deviceusername" in request.args:
+            systemConfig["deviceusername"] = request.args["deviceusername"]
+        if "APName" in request.args:
+            systemConfig["APName"] = request.args["APName"]
+        if "APPwd" in request.args:
+            systemConfig["APPwd"] = request.args["APPwd"]
+        if "APIP" in request.args:
+            systemConfig["APIP"] = request.args["APIP"]
+        if "modbusBadud" in request.args:
+            systemConfig["modbusBadud"] = int(request.args["modbusBadud"])
+        if "modbusSlaveAddr" in request.args:
+            systemConfig["modbusSlaveAddr"] = int(request.args["modbusSlaveAddr"])
+
         db.save({"systemConfig": ujson.dumps(systemConfig)})
         whenGotoConfigMode = utime.time() - MAX_CONFIG_MODE_TIME_IN_SECONDS + 10
         print("reboot after 10s.")
@@ -351,8 +495,8 @@ def handler(request):
     global whenGotoConfigMode
     whenGotoConfigMode = utime.time()
     res = {"errCode": "0", "msg": "success"}
-    print("scanap:path:{} ".format(request.path))
-    print("scanap:args:{}".format(request.args))
+    print("reset:path:{} ".format(request.path))
+    print("reset:args:{}".format(request.args))
 
     if "devicepwd" in request.args and request.args["devicepwd"] == systemConfig["devicepwd"]:
         print("reset after 5s.")
@@ -366,14 +510,14 @@ def handler(request):
     return ujson.dumps(res)
 
 
-#重启命令http://192.168.30.254/restart?devicepwd=pengping
+# 重启命令 http://192.168.30.254/restart?devicepwd=pengping
 @app.get('/restart')
 def handler(request):
     global whenGotoConfigMode
     whenGotoConfigMode = utime.time()
     res = {"errCode": "0", "msg": "success"}
-    print("scanap:path:{} ".format(request.path))
-    print("scanap:args:{}".format(request.args))
+    print("restart:path:{} ".format(request.path))
+    print("restart:args:{}".format(request.args))
 
     if "devicepwd" in request.args and request.args["devicepwd"] == systemConfig["devicepwd"]:
         print("reboot after 5s.")
@@ -400,39 +544,37 @@ except OSError as e:
 
 
 def sysTask():
-    global runTimeCounter
+    global runCounter
     global totalRunTime
     global startTime
-    global pm5350Data
-    runTimeCounter = utime.time()
-    totalRunTime += (runTimeCounter - startTime)
-    startTime = runTimeCounter
+    runCounter = utime.time()
+    totalRunTime += (runCounter - startTime)
+    startTime = runCounter
 
 
+loopCounter = 0  # 循环计数器，用于定时判断
 runCounter = 0
 while True:
     sysTask()
-    
-    #运行状态机
+
+    # 运行状态机
     runFSM()
 
-    if runCounter % 300 == 0:
+    if loopCounter % 300 == 0:
         print("-------------Before GC-------------")
         mp.mem_info()
         gc.collect()
         print("-------------After  GC-------------")
         mp.mem_info()
 
-    if runCounter % 2 == 0:
+    if loopCounter % 2 == 0:
         bspInstance.setLEDArray((0, 0, 0))
     else:
         bspInstance.setLEDArray(LEDArrayColor)
-		
-    if (runCounter % 3600) == 0:  # 每一个小时保存一次数据，但当前次方法30s运行一次，有风险
-        saveData(None)
+
+    if (loopCounter % 3600) == 0:
+        saveData()
         print("Main:save data to db finish.")
 
     utime.sleep_ms(1000)
-    runCounter += 1
-
-print("start UART REPL...")
+    loopCounter += 1

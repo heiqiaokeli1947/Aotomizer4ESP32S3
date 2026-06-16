@@ -26,13 +26,14 @@ class FSM:
         else:
             db.save({"totalSprayCount":str(self.totalSprayCount)})
 
-        self.pwmFreq = self.config["pwm1freq"]
-        self.pwmMinDuty = self.config["pwm1min"]
-        self.pwmMaxDuty = self.config["pwm1max"]
+        self.pwmFreq = int(self.config["pwm1freq"])
+        self.pwmMinDuty = int(self.config["pwm1min"])
+        self.pwmMaxDuty = int(self.config["pwm1max"])
 
         self.lastSprayTime = 0
-        self.sprayPeriod = self.config["sprayPeriod"]
-        self.minSparyTime = self.config["minSparyTime"]
+        self.sprayPeriod = int(self.config["sprayPeriod"])
+        self.minSparyTime = int(self.config["minSparyTime"])
+        self.maxSparyTime = int(self.config.get("maxSparyTime", 12))
         
         self.spray1StartTime = 0
         self.spray1TimeOut = 5
@@ -47,8 +48,8 @@ class FSM:
         self.finTemp = 0
         self.humity = 0
         self.wetBulbTemp = 0
-        self.fineLThreshold = self.config["fineLThreshold"]
-        self.fineHThreshold = self.config["fineHThreshold"]
+        self.fineLThreshold = float(self.config["fineLThreshold"])
+        self.fineHThreshold = float(self.config["fineHThreshold"])
     
         self.lastOverTempTime = 0
 
@@ -81,6 +82,8 @@ class FSM:
         self.pwmMaxDuty = int(self.config["pwm1max"])
         self.sprayPeriod = int(self.config["sprayPeriod"])
         self.minSparyTime = int(self.config["minSparyTime"])
+        if "maxSparyTime" in self.config:
+            self.maxSparyTime = int(self.config["maxSparyTime"])
         self.fineLThreshold = float(self.config["fineLThreshold"])
         self.fineHThreshold = float(self.config["fineHThreshold"])
 
@@ -137,7 +140,7 @@ class FSM:
                 extra = 2
             elif self.finTemp > 38:
                 extra = 1
-            self.spray1TimeOut = self.minSparyTime + extra
+            self.spray1TimeOut = min(self.minSparyTime + extra, self.maxSparyTime)
             self.spray2TimeOut = self.spray1TimeOut
             print("over temp, need spray {}s.".format(self.spray1TimeOut))
         else:

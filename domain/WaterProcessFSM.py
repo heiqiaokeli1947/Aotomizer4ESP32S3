@@ -22,9 +22,9 @@ class FSM:
         self.waterDischargeStartTime = 0
         self.waterFillStartTime = 0
         # 约365s从刚下到低水位加到高水位
-        self.waterFillTimeOut = self.config["waterFillTimeOut"]
-        self.waterDischargeTimeOut = self.config["waterDischargeTimeOut"] #55s=2L
-        self.minAddWaterInterval = self.config["minAddWaterInterval"]
+        self.waterFillTimeOut = int(self.config["waterFillTimeOut"])
+        self.waterDischargeTimeOut = int(self.config["waterDischargeTimeOut"]) #55s=2L
+        self.minAddWaterInterval = int(self.config["minAddWaterInterval"])
         
         self.totalAddWaterCount = 0
         if db.get("totalAddWaterCount") is not None:

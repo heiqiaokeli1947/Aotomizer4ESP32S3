@@ -66,15 +66,35 @@ def urldecode_str(s):
     parts = s.split('%')
     if len(parts) == 1:
         return s
-    result = [parts[0]]
-    for item in parts[1:]:
-        if item == '':
-            result.append('%')
-        else:
-            code = item[:2]
-            result.append(chr(int(code, 16)))
-            result.append(item[2:])
-    return ''.join(result)
+    
+    raw_bytes_list = []
+    for i, part in enumerate(parts):
+        if i == 0:
+            if part:
+                raw_bytes_list.append(part.encode('utf-8'))
+            continue
+        
+        if part == '':
+            raw_bytes_list.append(b'%')
+            continue
+        
+        hex_code = part[:2]
+        remaining = part[2:]
+        
+        try:
+            byte_val = int(hex_code, 16)
+            raw_bytes_list.append(bytes([byte_val]))
+            if remaining:
+                raw_bytes_list.append(remaining.encode('utf-8'))
+        except ValueError:
+            raw_bytes_list.append(('%' + hex_code).encode('utf-8'))
+            raw_bytes_list.append(remaining.encode('utf-8'))
+    
+    raw_bytes = b''.join(raw_bytes_list)
+    try:
+        return raw_bytes.decode('utf-8')
+    except UnicodeDecodeError:
+        return raw_bytes.decode('latin-1')
 
 
 def urldecode_bytes(s):
@@ -82,15 +102,31 @@ def urldecode_bytes(s):
     parts = s.split(b'%')
     if len(parts) == 1:
         return s.decode()
-    result = [parts[0]]
-    for item in parts[1:]:
-        if item == b'':
+    result = []
+    for i, part in enumerate(parts):
+        if i == 0:
+            result.append(part)
+            continue
+        if part == b'':
             result.append(b'%')
-        else:
-            code = item[:2]
-            result.append(bytes([int(code, 16)]))
-            result.append(item[2:])
-    return b''.join(result).decode()
+            continue
+        code = part[:2]
+        remaining = part[2:]
+        try:
+            byte_val = int(code, 16)
+            result.append(bytes([byte_val]))
+            if remaining.startswith(b'%'):
+                result.append(b'%' + remaining)
+            else:
+                result.append(remaining)
+        except ValueError:
+            result.append(b'%' + code)
+            result.append(remaining)
+    raw_bytes = b''.join(result)
+    try:
+        return raw_bytes.decode('utf-8')
+    except UnicodeDecodeError:
+        return raw_bytes.decode('latin-1')
 
 
 def urlencode(s):

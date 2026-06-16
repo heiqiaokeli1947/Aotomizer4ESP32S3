@@ -31,7 +31,6 @@
             display: none;
         }
 
-        /* Tabs styles */
         .tabs {
             margin-bottom: 1rem;
         }
@@ -86,12 +85,10 @@
             display: none;
         }
 
-        /* 默认显示第一个标签页 */
-        .tabs .tab-panels #tab-sensor-section {
+        .tabs .tab-panels #tab-monitor-section {
             display: block;
         }
 
-        /* 响应式卡片网格容器 - 手机1列，大屏幕自动适应 */
         .card-grid {
             display: grid;
             grid-template-columns: 1fr;
@@ -123,12 +120,10 @@
             }
         }
 
-        /* 卡片在网格中自适应 */
         .card-grid > .card-wrapper {
             width: 100%;
         }
 
-        /* Card 内部网格 */
         .grid-3 {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
@@ -141,7 +136,6 @@
             gap: 0.5rem;
         }
 
-        /* Grid 子元素 - 避免使用 spectre.css 的 .column */
         .grid-item {
             display: flex;
             flex-direction: column;
@@ -192,6 +186,26 @@
         .text-purple {
             color: #9b59b6;
         }
+
+        .text-green {
+            color: #27ae60;
+        }
+
+        .text-red {
+            color: #e74c3c;
+        }
+
+        .text-blue {
+            color: #3498db;
+        }
+
+        .text-orange {
+            color: #e67e22;
+        }
+
+        .cursor-pointer {
+            cursor: pointer;
+        }
     </style>
     <script src="/static/chart.umd.js"></script>
     <script src="/static/sweetalert.min.js"></script>
@@ -199,7 +213,6 @@
 </head>
 
 <body>
-    <!-- 头部区域 -->
     <section class="section bg-primary">
         <section class="grid-hero container grid-480">
             <header class="text-center" style="padding: 1rem 0;">
@@ -208,103 +221,53 @@
         </section>
     </section>
 
-    <!-- 设备控制区域 -->
     <section class="section">
         <section id="device-control" class="container grid-480">
-            <!-- 设备名称 -->
             <div class="form-group">
                 <label>设备名称:<span id="device_name_show">----</span></label>
             </div>
 
-            <!-- WiFi名称 -->
             <div class="form-group">
                 <label>WiFi名称:<span id="wifi_name_show">----</span></label>
             </div>
 
-            <!-- 标签页容器 -->
             <div class="tabs">
-                <!-- 标签导航栏 -->
                 <div class="tab-nav">
-                    <input id="tab-sensor" type="radio" name="tabs" class="tab-radio" checked>
-                    <label class="tab-link" for="tab-sensor">传感器数据</label>
+                    <input id="tab-monitor" type="radio" name="tabs" class="tab-radio" checked>
+                    <label class="tab-link" for="tab-monitor">系统监控</label>
                     <input id="tab-setting" type="radio" name="tabs" class="tab-radio">
                     <label class="tab-link" for="tab-setting">参数设置</label>
                     <input id="tab-network" type="radio" name="tabs" class="tab-radio">
                     <label class="tab-link" for="tab-network">网络设置</label>
                 </div>
 
-                <!-- 内容区域 -->
                 <div class="tab-panels">
-                    <!-- 传感器数据面板 -->
-                    <div id="tab-sensor-section" class="tab-panel">
-                        <!-- 图表 -->
+                    <div id="tab-monitor-section" class="tab-panel">
                         <canvas id="monitorChart" width="100%" height="100px"></canvas>
 
-                        <!-- 传感器数据仪表板 -->
                         <div class="form-group" style="margin-top: 1rem;">
                             <label class="form-label" style="font-weight: 600; font-size: 1.1rem; margin-bottom: 0.75rem;">实时数据</label>
                         </div>
 
-                        <!-- 卡片网格容器 -->
                         <div class="card-grid">
-                            <!-- 喷雾状态卡片 -->
                             <div class="card-wrapper">
                                 <div class="card">
                                     <div class="card-header bg-blue">
-                                        <div class="card-title h5 text-white">喷雾状态</div>
-                                    </div>
-                                    <div class="card-body" style="padding: 0.75rem;">
-                                        <div class="grid grid-3">
-                                            <div class="grid-item">
-                                                <div class="text-gray text-xs mb-1">空调状态</div>
-                                                <div class="text-sm font-semibold text-blue" id="id_airConditionerStatus">----</div>
-                                            </div>
-                                            <div class="grid-item">
-                                                <div class="text-gray text-xs mb-1">喷雾次数</div>
-                                                <div class="text-sm font-semibold text-blue" id="id_totalSprayCount">----</div>
-                                            </div>
-                                            <div class="grid-item">
-                                                <div class="text-gray text-xs mb-1">补水次数</div>
-                                                <div class="text-sm font-semibold text-blue" id="id_totalAddWaterCount">----</div>
-                                            </div>
-                                        </div>
-                                        <div class="grid grid-3 mt-2">
-                                            <div class="grid-item">
-                                                <div class="text-gray text-xs mb-1">水位状态</div>
-                                                <div class="text-xs font-semibold text-gray" id="id_waterMark">----</div>
-                                            </div>
-                                            <div class="grid-item">
-                                                <div class="text-gray text-xs mb-1">喷雾阈值</div>
-                                                <div class="text-xs font-semibold text-gray" id="id_fineTempThreshold">----℃</div>
-                                            </div>
-                                            <div class="grid-item">
-                                                <div class="text-gray text-xs mb-1">补水间隔</div>
-                                                <div class="text-xs font-semibold text-gray" id="id_addWaterMinInterval">----s</div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- 环境参数卡片 -->
-                            <div class="card-wrapper">
-                                <div class="card">
-                                    <div class="card-header bg-green">
-                                        <div class="card-title h5 text-white">环境参数</div>
+                                        <div class="card-title h5 text-white">环境信息</div>
                                     </div>
                                     <div class="card-body" style="padding: 0.75rem;">
                                         <div class="grid grid-3">
                                             <div class="grid-item">
                                                 <div class="text-gray text-xs mb-1">温度</div>
-                                                <div class="text-md font-bold" style="color: #e74c3c;" id="id_temp">----℃</div>
+                                                <div class="text-md font-bold text-red" id="id_temp">----℃</div>
                                             </div>
                                             <div class="grid-item">
                                                 <div class="text-gray text-xs mb-1">湿度</div>
-                                                <div class="text-md font-bold" style="color: #27ae60;" id="id_humity">----%</div>
+                                                <div class="text-md font-bold text-green" id="id_humity">----%</div>
                                             </div>
                                             <div class="grid-item">
                                                 <div class="text-gray text-xs mb-1">湿球温度</div>
-                                                <div class="text-md font-bold" style="color: #3498db;" id="id_wetBulbTemp">----℃</div>
+                                                <div class="text-md font-bold text-blue" id="id_wetBulbTemp">----℃</div>
                                             </div>
                                         </div>
                                         <div class="grid grid-3 mt-2">
@@ -321,25 +284,182 @@
                                                 <div class="text-sm font-semibold text-purple" id="id_pm2_5">----μg/m³</div>
                                             </div>
                                         </div>
+                                        <div class="grid grid-3 mt-2">
+                                            <div class="grid-item">
+                                                <div class="text-gray text-xs mb-1">经度</div>
+                                                <div class="text-sm font-semibold text-gray" id="id_longitude">----</div>
+                                            </div>
+                                            <div class="grid-item">
+                                                <div class="text-gray text-xs mb-1">纬度</div>
+                                                <div class="text-sm font-semibold text-gray" id="id_latitude">----</div>
+                                            </div>
+                                            <div class="grid-item">
+                                                <div class="text-gray text-xs mb-1">海拔</div>
+                                                <div class="text-sm font-semibold text-gray" id="id_altitude">----m</div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
 
-                            <!-- 运行时间卡片 -->
                             <div class="card-wrapper">
                                 <div class="card">
-                                    <div class="card-header">
-                                        <div class="card-title h5">运行时间</div>
+                                    <div class="card-header bg-green">
+                                        <div class="card-title h5 text-white">喷雾状态</div>
+                                    </div>
+                                    <div class="card-body" style="padding: 0.75rem;">
+                                        <div class="grid grid-3">
+                                            <div class="grid-item">
+                                                <div class="text-gray text-xs mb-1">喷雾次数</div>
+                                                <div class="text-sm font-semibold text-blue" id="id_totalSprayCount">----</div>
+                                            </div>
+                                            <div class="grid-item">
+                                                <div class="text-gray text-xs mb-1">喷雾周期</div>
+                                                <div class="text-sm font-semibold text-blue" id="id_sprayPeriod">----s</div>
+                                            </div>
+                                            <div class="grid-item">
+                                                <div class="text-gray text-xs mb-1">最小喷雾时间</div>
+                                                <div class="text-sm font-semibold text-blue" id="id_minSparyTime">----s</div>
+                                            </div>
+                                        </div>
+                                        <div class="grid grid-3 mt-2">
+                                            <div class="grid-item">
+                                                <div class="text-gray text-xs mb-1">最大喷雾时间</div>
+                                                <div class="text-sm font-semibold text-blue" id="id_maxSparyTime">----s</div>
+                                            </div>
+                                            <div class="grid-item">
+                                                <div class="text-gray text-xs mb-1">有水可用</div>
+                                                <div class="text-sm font-semibold text-green" id="id_waterAvailable">----</div>
+                                            </div>
+                                            <div class="grid-item">
+                                                <div class="text-gray text-xs mb-1">翅片温度</div>
+                                                <div class="text-sm font-semibold text-red" id="id_fineTemp">----℃</div>
+                                            </div>
+                                        </div>
+                                        <div class="grid grid-3 mt-2">
+                                            <div class="grid-item">
+                                                <div class="text-gray text-xs mb-1">喷雾阈值</div>
+                                                <div class="text-sm font-semibold text-orange" id="id_fineTempThreshold">----℃</div>
+                                            </div>
+                                            <div class="grid-item">
+                                                <div class="text-gray text-xs mb-1">温度高阈值</div>
+                                                <div class="text-sm font-semibold text-orange" id="id_fineHThreshold">----℃</div>
+                                            </div>
+                                            <div class="grid-item">
+                                                <div class="text-gray text-xs mb-1">温度低阈值</div>
+                                                <div class="text-sm font-semibold text-orange" id="id_fineLThreshold">----℃</div>
+                                            </div>
+                                        </div>
+                                        <div class="grid grid-3 mt-2">
+                                            <div class="grid-item">
+                                                <div class="text-gray text-xs mb-1">空调状态</div>
+                                                <div class="text-sm font-semibold text-blue" id="id_airConditionerStatus">----</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="card-wrapper">
+                                <div class="card">
+                                    <div class="card-header bg-purple">
+                                        <div class="card-title h5 text-white">水处理状态</div>
+                                    </div>
+                                    <div class="card-body" style="padding: 0.75rem;">
+                                        <div class="grid grid-3">
+                                            <div class="grid-item">
+                                                <div class="text-gray text-xs mb-1">补水次数</div>
+                                                <div class="text-sm font-semibold text-blue" id="id_totalAddWaterCount">----</div>
+                                            </div>
+                                            <div class="grid-item">
+                                                <div class="text-gray text-xs mb-1">水位状态</div>
+                                                <div class="text-sm font-semibold text-green" id="id_waterMark">----</div>
+                                            </div>
+                                            <div class="grid-item">
+                                                <div class="text-gray text-xs mb-1">补水间隔</div>
+                                                <div class="text-sm font-semibold text-blue" id="id_minAddWaterInterval">----s</div>
+                                            </div>
+                                        </div>
+                                        <div class="grid grid-3 mt-2">
+                                            <div class="grid-item">
+                                                <div class="text-gray text-xs mb-1">加水超时</div>
+                                                <div class="text-sm font-semibold text-blue" id="id_waterFillTimeOut">----s</div>
+                                            </div>
+                                            <div class="grid-item">
+                                                <div class="text-gray text-xs mb-1">排水超时</div>
+                                                <div class="text-sm font-semibold text-blue" id="id_waterDischargeTimeOut">----s</div>
+                                            </div>
+                                            <div class="grid-item">
+                                                <div class="text-gray text-xs mb-1">进水TDS</div>
+                                                <div class="text-sm font-semibold text-purple" id="id_inWaterTDS">----ppm</div>
+                                            </div>
+                                        </div>
+                                        <div class="grid grid-3 mt-2">
+                                            <div class="grid-item">
+                                                <div class="text-gray text-xs mb-1">水箱TDS</div>
+                                                <div class="text-sm font-semibold text-purple" id="id_waterTankTDS">----ppm</div>
+                                            </div>
+                                            <div class="grid-item">
+                                                <div class="text-gray text-xs mb-1">水温</div>
+                                                <div class="text-sm font-semibold text-blue" id="id_waterTemp">----℃</div>
+                                            </div>
+                                            <div class="grid-item">
+                                                <div class="text-gray text-xs mb-1">TDS阈值</div>
+                                                <div class="text-sm font-semibold text-orange" id="id_waterTDSThreshold">----ppm</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="card-wrapper">
+                                <div class="card">
+                                    <div class="card-header bg-orange">
+                                        <div class="card-title h5 text-white">开关状态</div>
                                     </div>
                                     <div class="card-body" style="padding: 0.75rem;">
                                         <div class="grid grid-2">
                                             <div class="grid-item">
-                                                <div class="text-gray text-sm mb-1">本次启动</div>
-                                                <div class="text-lg font-bold text-primary" id="id_runtime">----s</div>
+                                                <div class="text-gray text-sm mb-1" id="id_sw1_name">----</div>
+                                                <div class="text-lg font-bold cursor-pointer" id="id_sw1_status" onclick="toggleSwitch(1)">----</div>
+                                            </div>
+                                            <div class="grid-item">
+                                                <div class="text-gray text-sm mb-1" id="id_sw2_name">----</div>
+                                                <div class="text-lg font-bold cursor-pointer" id="id_sw2_status" onclick="toggleSwitch(2)">----</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="card-wrapper">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <div class="card-title h5">运行统计</div>
+                                    </div>
+                                    <div class="card-body" style="padding: 0.75rem;">
+                                        <div class="grid grid-2">
+                                            <div class="grid-item">
+                                                <div class="text-gray text-sm mb-1">本次运行</div>
+                                                <div class="text-lg font-bold text-primary" id="id_runtime">----</div>
                                             </div>
                                             <div class="grid-item">
                                                 <div class="text-gray text-sm mb-1">总运行时间</div>
-                                                <div class="text-lg font-bold text-primary" id="id_totalRuntime">----s</div>
+                                                <div class="text-lg font-bold text-primary" id="id_totalRuntime">----</div>
+                                            </div>
+                                        </div>
+                                        <div class="grid grid-3 mt-2">
+                                            <div class="grid-item">
+                                                <div class="text-gray text-xs mb-1">版本</div>
+                                                <div class="text-sm font-semibold text-gray" id="id_ver">----</div>
+                                            </div>
+                                            <div class="grid-item">
+                                                <div class="text-gray text-xs mb-1">模式</div>
+                                                <div class="text-sm font-semibold text-gray" id="id_mode">----</div>
+                                            </div>
+                                            <div class="grid-item">
+                                                <div class="text-gray text-xs mb-1">设备ID</div>
+                                                <div class="text-sm font-semibold text-gray" id="id_deviceId">----</div>
                                             </div>
                                         </div>
                                     </div>
@@ -348,66 +468,82 @@
                         </div>
 
                         <div style="height: 20px;"></div>
-                    </div> <!-- 关闭 tab-sensor-section -->
+                    </div>
 
-                    <!-- 参数设置面板 -->
                     <div id="tab-setting-section" class="tab-panel">
-                        <!-- 温度阈值设置 -->
                         <div class="form-group">
                             <label class="form-label" style="font-weight: 600; font-size: 1.1rem;">温度阈值</label>
                             <label>温度高阈值 (℃):</label>
                             <div class="input-group">
-                                <input type="text" id="threhold_h" class="form-input" value="----"
-                                    placeholder="外机散热器翅片温度高阈值." />
+                                <input type="text" id="threhold_h" class="form-input" value="----" placeholder="外机散热器翅片温度高阈值." />
                             </div>
                             <label>温度低阈值 (℃):</label>
                             <div class="input-group">
-                                <input type="text" id="threhold_l" class="form-input" value="----"
-                                    placeholder="外机散热器翅片温度低阈值：喷水启动阈值." />
+                                <input type="text" id="threhold_l" class="form-input" value="----" placeholder="外机散热器翅片温度低阈值：喷水启动阈值." />
                             </div>
                         </div>
 
-                        <!-- 喷雾参数设置 -->
                         <div class="form-group">
                             <label class="form-label" style="font-weight: 600; font-size: 1.1rem;">喷雾参数</label>
                             <label>喷水周期 (s):</label>
                             <div class="input-group">
-                                <input type="text" id="spray_period" class="form-input" value="----"
-                                    placeholder="喷水控制周期时长." />
+                                <input type="text" id="spray_period" class="form-input" value="----" placeholder="喷水控制周期时长." />
                             </div>
                             <label>喷水最短时长 (s):</label>
                             <div class="input-group">
-                                <input type="text" id="min_spary_time" class="form-input" value="----"
-                                    placeholder="外机温度比喷水阈值每高1℃则喷水时间多1s." />
+                                <input type="text" id="min_spary_time" class="form-input" value="----" placeholder="外机温度比喷水阈值每高1℃则喷水时间多1s." />
+                            </div>
+                            <label>喷水最大时长 (s):</label>
+                            <div class="input-group">
+                                <input type="text" id="max_spary_time" class="form-input" value="----" placeholder="外机温度比喷水阈值每高1℃则喷水时间多1s,不超过最大时长." />
                             </div>
                             <label>加水最小间隔 (s):</label>
                             <div class="input-group">
-                                <input type="text" id="min_add_water_interval" class="form-input" value="----"
-                                    placeholder="水箱加水最短时间间隔,防止用水过多." />
+                                <input type="text" id="min_add_water_interval" class="form-input" value="----" placeholder="水箱加水最短时间间隔,防止用水过多." />
                             </div>
                         </div>
 
-                        <!-- PWM参数设置 -->
                         <div class="form-group">
-                            <label class="form-label" style="font-weight: 600; font-size: 1.1rem;">PWM参数</label>
+                            <label class="form-label" style="font-weight: 600; font-size: 1.1rem;">PWM配置</label>
+                            <label>PWM通道:</label>
+                            <div class="input-group">
+                                <select id="pwm_channel" class="form-select" onchange="switchPWMChannel(this.value)">
+                                    <option value="1">PWM1</option>
+                                    <option value="2">PWM2</option>
+                                    <option value="3">PWM3</option>
+                                    <option value="4">PWM4</option>
+                                </select>
+                            </div>
                             <label>PWM频率 (Hz):</label>
                             <div class="input-group">
-                                <input type="text" id="pwm_freq" class="form-input" value="----"
-                                    placeholder="PWM频率 (Hz)." />
+                                <input type="text" id="pwm_freq" class="form-input" value="----" placeholder="PWM频率." />
                             </div>
                             <label>最小PWM占空比 (%):</label>
                             <div class="input-group">
-                                <input type="text" id="pwm_min_duty" class="form-input" value="----"
-                                    placeholder="PWM最小占空比." />
+                                <input type="text" id="pwm_min_duty" class="form-input" value="----" placeholder="PWM最小占空比." />
                             </div>
                             <label>最大PWM占空比 (%):</label>
                             <div class="input-group">
-                                <input type="text" id="pwm_max_duty" class="form-input" value="----"
-                                    placeholder="PWM最大占空比." />
+                                <input type="text" id="pwm_max_duty" class="form-input" value="----" placeholder="PWM最大占空比." />
+                            </div>
+                            <label>默认PWM占空比 (%):</label>
+                            <div class="input-group">
+                                <input type="text" id="pwm_default_duty" class="form-input" value="----" placeholder="PWM默认占空比." />
                             </div>
                         </div>
 
-                        <!-- 开关控制 -->
+                        <div class="form-group">
+                            <label class="form-label" style="font-weight: 600; font-size: 1.1rem;">开关名称设置</label>
+                            <label>开关1名称:</label>
+                            <div class="input-group">
+                                <input type="text" id="input_switch_1_name" class="form-input" value="----" placeholder="输入开关1名称." />
+                            </div>
+                            <label>开关2名称:</label>
+                            <div class="input-group">
+                                <input type="text" id="input_switch_2_name" class="form-input" value="----" placeholder="输入开关2名称." />
+                            </div>
+                        </div>
+
                         <div class="form-group" style="display: flex; align-items: center;">
                             <label class="form-label" style="margin-right: 10px;">开关控制:</label>
                             <label class="form-switch" style="margin-right: 15px;">
@@ -422,76 +558,95 @@
                             </label>
                         </div>
 
-                        <!-- 应用设置按钮 -->
                         <div class="form-group" style="text-align: right;">
                             <button type="button" id="btn_switch" class="btn btn-primary">Apply setting</button>
                         </div>
 
-                        <!-- 重启/重置按钮 -->
                         <div class="form-group" style="overflow: hidden;">
                             <button type="button" id="btn_reset" class="btn btn-primary float-left">reset</button>
                             <button type="button" id="btn_restart" class="btn btn-primary float-right">restart</button>
                         </div>
 
                         <div style="height: 40px;"></div>
-                    </div> <!-- 关闭 tab-setting-section -->
+                    </div>
 
-                    <!-- 网络设置面板 -->
                     <div id="tab-network-section" class="tab-panel">
                         <div class="form-group">
-                            <label class="form-label" style="font-weight: 600; font-size: 1.1rem;">网络设置</label>
-                        </div>
-                        <form>
-                            <div class="form-group">
-                                <label>设备名称:</label>
-                                <div class="input-group">
-                                    <input type="text" id="device_name" class="form-input" value="----"
-                                        placeholder="Input device name." />
-                                </div>
-
-                                <label>设备密码:</label>
-                                <div class="input-group">
-                                    <input type="text" id="devicepwd" class="form-input" value="pengping"
-                                        placeholder="Input device password." />
-                                </div>
-
-                                <label>开关1名称:</label>
-                                <div class="input-group">
-                                    <input type="text" id="input_switch_1_name" class="form-input" value="----"
-                                        placeholder="Input switch 1 name." />
-                                </div>
-
-                                <label>开关2名称:</label>
-                                <div class="input-group">
-                                    <input type="text" id="input_switch_2_name" class="form-input" value="----"
-                                        placeholder="Input switch 2 name." />
-                                </div>
-
-                                <label>服务器IP:</label>
-                                <div class="input-group">
-                                    <input type="text" id="serverurl" class="form-input" value="192.168.1.124"
-                                        placeholder="Input server IP." />
-                                </div>
-
-                                <label>WiFi名称:</label>
-                                <div class="input-group">
-                                    <input type="text" id="ssid" class="form-input" placeholder="Input or select WIFI SSID." />
-                                    <button type="button" id="scanap" class="btn btn-primary float-right">Scan AP</button>
-                                </div>
-
-                                <label>WiFi密码:</label>
-                                <div class="input-group">
-                                    <input id="input-pwd" class="form-input" type="password" placeholder="Input WIFI password." />
-                                    <button type="button" id="connect" class="btn btn-primary float-right">Connect</button>
-                                </div>
+                            <label class="form-label" style="font-weight: 600; font-size: 1.1rem;">设备参数</label>
+                            <label>设备名称:</label>
+                            <div class="input-group">
+                                <input type="text" id="device_name" class="form-input" value="----" placeholder="输入设备名称." />
                             </div>
-                        </form>
-                    </div> <!-- 关闭 tab-network-section -->
-                </div> <!-- 关闭 tab-panels -->
-            </div> <!-- 关闭 tabs 容器 -->
+                            <label>设备用户名:</label>
+                            <div class="input-group">
+                                <input type="text" id="deviceusername" class="form-input" value="----" placeholder="输入设备用户名." />
+                            </div>
+                            <label>设备密码:</label>
+                            <div class="input-group">
+                                <input type="text" id="devicepwd" class="form-input" value="pengping" placeholder="输入设备密码." />
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label" style="font-weight: 600; font-size: 1.1rem;">WiFi</label>
+                            <label>WiFi名称:</label>
+                            <div class="input-group">
+                                <input type="text" id="ssid" class="form-input" placeholder="输入或选择WiFi SSID." />
+                                <button type="button" id="scanap" class="btn btn-primary float-right">Scan AP</button>
+                            </div>
+                            <label>WiFi密码:</label>
+                            <div class="input-group">
+                                <input id="input-pwd" class="form-input" type="password" placeholder="输入WiFi密码." />
+                                <button type="button" id="connect" class="btn btn-primary float-right">Connect</button>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label" style="font-weight: 600; font-size: 1.1rem;">AP热点</label>
+                            <label>热点名称:</label>
+                            <div class="input-group">
+                                <input type="text" id="APName" class="form-input" value="----" placeholder="输入热点名称." />
+                            </div>
+                            <label>热点密码:</label>
+                            <div class="input-group">
+                                <input type="text" id="APPwd" class="form-input" value="----" placeholder="输入热点密码." />
+                            </div>
+                            <label>热点IP:</label>
+                            <div class="input-group">
+                                <input type="text" id="APIP" class="form-input" value="----" placeholder="输入热点IP." />
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label" style="font-weight: 600; font-size: 1.1rem;">远程服务器</label>
+                            <label>服务器地址:</label>
+                            <div class="input-group">
+                                <input type="text" id="serverurl" class="form-input" value="----" placeholder="输入服务器地址." />
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label" style="font-weight: 600; font-size: 1.1rem;">Modbus</label>
+                            <label>波特率:</label>
+                            <div class="input-group">
+                                <input type="text" id="modbusBadud" class="form-input" value="----" placeholder="输入波特率." />
+                            </div>
+                            <label>从机地址:</label>
+                            <div class="input-group">
+                                <input type="text" id="modbusSlaveAddr" class="form-input" value="----" placeholder="输入从机地址." />
+                            </div>
+                        </div>
+
+                        <div class="form-group" style="text-align: right;">
+                            <button type="button" id="btn_network_apply" class="btn btn-primary">应用</button>
+                        </div>
+
+                        <div style="height: 40px;"></div>
+                    </div>
+                </div>
+            </div>
         </section>
 
-        <!-- 底部 -->
         <section class="section bg-primary" style="margin-bottom: 0;">
             <section class="grid-hero container grid-480">
                 <section class="text-center" style="padding: 1rem 0; margin: 0;">
@@ -501,7 +656,6 @@
         </section>
     </section>
 
-    <!-- 选择WiFi模态框 -->
     <div id="selectwifi" class="modal">
         <div class="modal-overlay"></div>
         <div class="modal-container">
@@ -512,7 +666,6 @@
         </div>
     </div>
 
-    <!-- AP列表项模板 -->
     <script id="item-ap" type="text/html">
         <div class="chip hand">
             <svg width="30px" height="20px" class="chip-icon">
@@ -523,13 +676,7 @@
         </div>
     </script>
 
-    <!-- ============================================
-         应用主脚本 - 模块化重构版本
-         ============================================ -->
     <script>
-        // ============================================
-        // 配置常量模块 - 集中管理所有配置项
-        // ============================================
         const CONFIG = {
             API: {
                 STATUS: '../status',
@@ -547,36 +694,56 @@
                 INVALID_VALUE: -9999
             },
             SELECTORS: {
-                // 设备信息
                 DEVICE_NAME: '#device_name_show',
                 WIFI_NAME: '#wifi_name_show',
                 DEVICE_NAME_INPUT: '#device_name',
+                DEVICE_USERNAME: '#deviceusername',
                 DEVICEPWD: '#devicepwd',
                 SERVERURL: '#serverurl',
                 SSID: '#ssid',
                 INPUT_PWD: '#input-pwd',
 
-                // 运行时间
                 RUNTIME: '#id_runtime',
                 TOTAL_RUNTIME: '#id_totalRuntime',
+                VER: '#id_ver',
+                MODE: '#id_mode',
+                DEVICE_ID: '#id_deviceId',
 
-                // 喷雾状态
                 AIR_CONDITIONER_STATUS: '#id_airConditionerStatus',
                 TOTAL_SPRAY_COUNT: '#id_totalSprayCount',
+                SPRAY_PERIOD: '#id_sprayPeriod',
+                MIN_SPARY_TIME: '#id_minSparyTime',
+                MAX_SPARY_TIME: '#id_maxSparyTime',
+                WATER_AVAILABLE: '#id_waterAvailable',
+                FINE_TEMP: '#id_fineTemp',
+                FINE_TEMP_THRESHOLD: '#id_fineTempThreshold',
+                FINE_H_THRESHOLD: '#id_fineHThreshold',
+                FINE_L_THRESHOLD: '#id_fineLThreshold',
                 TOTAL_ADD_WATER_COUNT: '#id_totalAddWaterCount',
                 WATER_MARK: '#id_waterMark',
-                FINE_TEMP_THRESHOLD: '#id_fineTempThreshold',
-                ADD_WATER_MIN_INTERVAL: '#id_addWaterMinInterval',
+                MIN_ADD_WATER_INTERVAL: '#id_minAddWaterInterval',
+                WATER_FILL_TIMEOUT: '#id_waterFillTimeOut',
+                WATER_DISCHARGE_TIMEOUT: '#id_waterDischargeTimeOut',
+                IN_WATER_TDS: '#id_inWaterTDS',
+                WATER_TANK_TDS: '#id_waterTankTDS',
+                WATER_TEMP: '#id_waterTemp',
+                WATER_TDS_THRESHOLD: '#id_waterTDSThreshold',
 
-                // 环境参数
+                SW1_NAME_DISPLAY: '#id_sw1_name',
+                SW2_NAME_DISPLAY: '#id_sw2_name',
+                SW1_STATUS: '#id_sw1_status',
+                SW2_STATUS: '#id_sw2_status',
+
                 TEMP: '#id_temp',
                 WET_BULB_TEMP: '#id_wetBulbTemp',
                 HUMI: '#id_humity',
                 PRESURE: '#id_presure',
                 LUMINANCE: '#id_luminance',
                 PM25: '#id_pm2_5',
+                LONGITUDE: '#id_longitude',
+                LATITUDE: '#id_latitude',
+                ALTITUDE: '#id_altitude',
 
-                // 开关控制
                 SWITCH_1: '#checkbox_1',
                 SWITCH_2: '#checkbox_2',
                 SWITCH_1_NAME: '#sw_1_name',
@@ -584,28 +751,33 @@
                 SWITCH_1_NAME_INPUT: '#input_switch_1_name',
                 SWITCH_2_NAME_INPUT: '#input_switch_2_name',
 
-                // 参数设置
                 THRESHOLD_H: '#threhold_h',
                 THRESHOLD_L: '#threhold_l',
-                SPRAY_PERIOD: '#spray_period',
-                MIN_SPRAY_TIME: '#min_spary_time',
-                MIN_ADD_WATER_INTERVAL: '#min_add_water_interval',
+                SPRAY_PERIOD_INPUT: '#spray_period',
+                MIN_SPRAY_TIME_INPUT: '#min_spary_time',
+                MAX_SPRAY_TIME_INPUT: '#max_spary_time',
+                MIN_ADD_WATER_INTERVAL_INPUT: '#min_add_water_interval',
+                PWM_CHANNEL: '#pwm_channel',
                 PWM_FREQ: '#pwm_freq',
                 PWM_MIN_DUTY: '#pwm_min_duty',
                 PWM_MAX_DUTY: '#pwm_max_duty',
+                PWM_DEFAULT_DUTY: '#pwm_default_duty',
 
-                // 按钮
+                AP_NAME: '#APName',
+                AP_PWD: '#APPwd',
+                AP_IP: '#APIP',
+                MODBUS_BAUD: '#modbusBadud',
+                MODBUS_ADDR: '#modbusSlaveAddr',
+
                 BTN_SWITCH: '#btn_switch',
                 BTN_RESET: '#btn_reset',
                 BTN_RESTART: '#btn_restart',
                 BTN_CONNECT: '#connect',
                 BTN_SCANAP: '#scanap',
+                BTN_NETWORK_APPLY: '#btn_network_apply',
 
-                // 模态框
                 SELECT_WIFI_MODAL: '#selectwifi',
                 AP_LIST: '#aplist',
-
-                // 标签页
                 NETWORK_SECTION: '#tab-network-section'
             },
             UNITS: {
@@ -616,7 +788,9 @@
                 luminance: 'Lux',
                 pm25: 'μg/m³',
                 runtime: 's',
-                threshold: '℃'
+                threshold: '℃',
+                altitude: 'm',
+                tds: 'ppm'
             },
             CHART_COLORS: {
                 temp: 'rgb(75, 132, 192)',
@@ -627,14 +801,7 @@
             }
         };
 
-        // ============================================
-        // 工具函数模块
-        // ============================================
         const UTILS = {
-            /**
-             * 检测用户是否正在编辑输入框
-             * @returns {boolean}
-             */
             isUserEditing: function() {
                 const activeElement = document.activeElement;
                 if (!activeElement) return false;
@@ -645,13 +812,6 @@
                 return !!activeElement.isContentEditable;
             },
 
-            /**
-             * 格式化数值显示
-             * @param {*} value - 原始值
-             * @param {string} unit - 单位
-             * @param {string} defaultValue - 默认显示值
-             * @returns {string}
-             */
             formatValue: function(value, unit = '', defaultValue = '----') {
                 if (value === null || value === undefined || value === CONFIG.BUFFER.INVALID_VALUE) {
                     return defaultValue;
@@ -659,23 +819,13 @@
                 return `${value}${unit}`;
             },
 
-            /**
-             * 格式化时间显示
-             * @param {number} seconds - 秒数
-             * @returns {string}
-             */
             formatTime: function(seconds) {
-                if (seconds === null || seconds === undefined) return '----s';
+                if (seconds === null || seconds === undefined) return '----';
                 if (seconds < 60) return `${seconds}s`;
                 if (seconds < 3600) return `${(seconds / 60).toFixed(1)}min`;
                 return `${(seconds / 3600).toFixed(1)}h`;
             },
 
-            /**
-             * 安全解析JSON
-             * @param {string} str - JSON字符串
-             * @returns {object|null}
-             */
             parseJSON: function(str) {
                 try {
                     return JSON.parse(str);
@@ -685,12 +835,6 @@
                 }
             },
 
-            /**
-             * 显示消息提示
-             * @param {string} title - 标题
-             * @param {string} message - 消息内容
-             * @param {string} type - 类型 (success/error/warning)
-             */
             showMessage: function(title, message, type = 'success') {
                 if (typeof swal === 'function') {
                     swal(title, message, type);
@@ -699,12 +843,6 @@
                 }
             },
 
-            /**
-             * 字符串格式化 (类似Python的format)
-             * @param {string} str - 模板字符串
-             * @param {...*} args - 参数
-             * @returns {string}
-             */
             formatString: function(str, ...args) {
                 return str.replace(/\{(\d+)\}/g, function(m, i) {
                     return args[parseInt(i)] || '';
@@ -712,26 +850,15 @@
             }
         };
 
-        // ============================================
-        // 数据缓冲区 - 工厂模式
-        // ============================================
         function createDataBuffer(maxSize = CONFIG.BUFFER.MAX_SIZE) {
             return {
                 maxSize: maxSize,
                 buffer: [],
 
-                /**
-                 * 检查缓冲区是否已满
-                 * @returns {boolean}
-                 */
                 isFull: function() {
                     return this.buffer.length >= this.maxSize;
                 },
 
-                /**
-                 * 添加数据到缓冲区
-                 * @param {object} data - 数据对象
-                 */
                 add: function(data) {
                     if (this.isFull()) {
                         this.buffer.shift();
@@ -740,10 +867,6 @@
                     console.log(`Buffer size: ${this.buffer.length}`);
                 },
 
-                /**
-                 * 获取图表绘制数据
-                 * @returns {object}
-                 */
                 getPlotData: function() {
                     const plotData = {
                         x: [],
@@ -757,7 +880,6 @@
                         fineLThreshold: 0
                     };
 
-                    // X轴标签
                     plotData.x = Array.from({ length: this.buffer.length }, (_, i) => i).reverse();
 
                     const invalidValue = CONFIG.BUFFER.INVALID_VALUE;
@@ -770,7 +892,6 @@
                         plotData.presure[i] = json.presure === invalidValue ? undefined : json.presure;
                     }
 
-                    // 获取最新数据
                     if (this.buffer.length > 0) {
                         const last = this.buffer[this.buffer.length - 1];
                         plotData.fanSpeed = last.fanSpeed || 0;
@@ -783,46 +904,43 @@
             };
         }
 
-        // ============================================
-        // 设备数据模型 - 工厂模式
-        // ============================================
         function createDeviceData() {
             return {
                 data: {},
+                pwmData: {},
                 INVALID_VALUE: CONFIG.BUFFER.INVALID_VALUE,
 
-                /**
-                 * 更新数据
-                 * @param {object} rawData - 原始API响应数据
-                 */
                 update: function(rawData) {
                     this.data = this.parse(rawData);
+                    this.pwmData = this.parsePWMData(rawData);
                 },
 
-                /**
-                 * 解析原始数据为结构化数据
-                 * @param {object} rawData - 原始数据
-                 * @returns {object}
-                 */
                 parse: function(rawData) {
                     const invalid = this.INVALID_VALUE;
                     return {
-                        // 设备信息
                         deviceName: rawData.devicename || '---',
                         wifiName: rawData.wifiname || '---',
                         mode: rawData.mode || 'unknown',
+                        ver: rawData.ver || '---',
+                        deviceId: rawData.deviceId || '---',
 
-                        // 运行时间
                         runTime: rawData.runTime || 0,
                         totalRunTime: rawData.totalRunTime || 0,
 
-                        // 喷雾状态
                         spray: {
                             airConditionerStatus: (rawData.airConditionerStatus === 0 || rawData.airConditionerStatus === 1)
                                 ? (rawData.airConditionerStatus === 1 ? 'ON' : 'OFF')
                                 : (rawData.airConditionerStatus || '---'),
                             totalSprayCount: rawData.totalSprayCount || 0,
                             totalAddWaterCount: rawData.totalAddWaterCount || 0,
+                            sprayPeriod: rawData.sprayPeriod || 0,
+                            minSparyTime: rawData.minSparyTime || 0,
+                            maxSparyTime: rawData.maxSparyTime || 0,
+                            waterAvailable: rawData.waterAvailable ? '可用' : '不可用',
+                            fineTemp: rawData.fineTemp || invalid,
+                            fineTempThreshold: rawData.fineTempThreshold || invalid,
+                            fineHThreshold: rawData.fineHThreshold || invalid,
+                            fineLThreshold: rawData.fineLThreshold || invalid,
                             waterMark: (function() {
                                 var wm = rawData.waterMark;
                                 if (wm === 1) return '空';
@@ -830,21 +948,27 @@
                                 if (wm === 3) return '满';
                                 return wm || '---';
                             })(),
-                            fineTempThreshold: rawData.fineTempThreshold || invalid,
-                            addWaterMinInterval: rawData.minAddWaterInterval || 0
+                            minAddWaterInterval: rawData.minAddWaterInterval || 0,
+                            waterFillTimeOut: rawData.waterFillTimeOut || 0,
+                            waterDischargeTimeOut: rawData.waterDischargeTimeOut || 0,
+                            inWaterTDS: rawData.inWaterTDS || invalid,
+                            waterTankTDS: rawData.waterTankTDS || invalid,
+                            waterTemp: rawData.waterTemp || invalid,
+                            waterTDSThreshold: rawData.waterTDSThreshold || 0
                         },
 
-                        // 环境传感器
                         sensors: {
                             temp: rawData.temp || invalid,
                             wetBulbTemp: rawData.wetBulbTemp || invalid,
                             humi: rawData.humi || invalid,
                             presure: rawData.presure || invalid,
                             luminance: rawData.luminance || invalid,
-                            pm25: rawData.pm25 || invalid
+                            pm25: rawData.pm25 || invalid,
+                            longitude: rawData.longitude || '---',
+                            latitude: rawData.latitude || '---',
+                            altitude: rawData.altitude || invalid
                         },
 
-                        // 开关状态
                         switches: {
                             sw1: rawData.sw1 === true || rawData.sw1 === 'true',
                             sw2: rawData.sw2 === true || rawData.sw2 === 'true',
@@ -852,41 +976,72 @@
                             sw2Name: rawData.sw2name || 'S2'
                         },
 
-                        // 参数设置
                         settings: {
                             fineHThreshold: rawData.fineHThreshold || invalid,
                             fineLThreshold: rawData.fineLThreshold || invalid,
                             sprayPeriod: rawData.sprayPeriod || 0,
                             minSparyTime: rawData.minSparyTime || 0,
+                            maxSparyTime: rawData.maxSparyTime || 0,
                             minAddWaterInterval: rawData.minAddWaterInterval || 0,
                             pwmFreq: rawData.pwm1freq || 0,
                             pwmMinDuty: rawData.pwm1min || 0,
-                            pwmMaxDuty: rawData.pwm1max || 0
+                            pwmMaxDuty: rawData.pwm1max || 0,
+                            pwmDefaultDuty: rawData.pwm1default || 0
                         },
 
-                        // 网络配置
                         network: {
                             serverurl: rawData.serverurl || '',
-                            deviceId: rawData.deviceId || ''
+                            APName: rawData.APName || '',
+                            APPwd: rawData.APPwd || '',
+                            APIP: rawData.APIP || '',
+                            modbusBadud: rawData.modbusBadud || '',
+                            modbusSlaveAddr: rawData.modbusSlaveAddr || '',
+                            deviceusername: rawData.deviceusername || '',
+                            devicepwd: rawData.devicepwd || ''
                         }
                     };
                 },
 
-                /**
-                 * 便捷获取方法 - 支持点号路径
-                 * @param {string} key - 键名（支持点号路径如 'sensors.temp'）
-                 * @returns {*}
-                 */
+                parsePWMData: function(rawData) {
+                    return {
+                        1: {
+                            freq: rawData.pwm1freq || 0,
+                            min: rawData.pwm1min || 0,
+                            max: rawData.pwm1max || 0,
+                            default: rawData.pwm1default || 0
+                        },
+                        2: {
+                            freq: rawData.pwm2freq || 0,
+                            min: rawData.pwm2min || 0,
+                            max: rawData.pwm2max || 0,
+                            default: rawData.pwm2default || 0
+                        },
+                        3: {
+                            freq: rawData.pwm3freq || 0,
+                            min: rawData.pwm3min || 0,
+                            max: rawData.pwm3max || 0,
+                            default: rawData.pwm3default || 0
+                        },
+                        4: {
+                            freq: rawData.pwm4freq || 0,
+                            min: rawData.pwm4min || 0,
+                            max: rawData.pwm4max || 0,
+                            default: rawData.pwm4default || 0
+                        }
+                    };
+                },
+
                 get: function(key) {
                     const keys = key.split('.');
                     return keys.reduce((obj, k) => obj && obj[k], this.data);
+                },
+
+                getPWMData: function(channel) {
+                    return this.pwmData[channel];
                 }
             };
         }
 
-        // ============================================
-        // 视图层 - 基础视图工厂
-        // ============================================
         function createBaseView() {
             return {
                 update: function(deviceData) {
@@ -895,9 +1050,6 @@
             };
         }
 
-        // ============================================
-        // 设备信息视图 - 设备名称、WiFi名称等
-        // ============================================
         function createDeviceInfoView() {
             const view = createBaseView();
             view.update = function(deviceData) {
@@ -905,26 +1057,36 @@
                 $(CONFIG.SELECTORS.DEVICE_NAME).text(data.deviceName);
                 $(CONFIG.SELECTORS.WIFI_NAME).text(data.wifiName);
                 $(CONFIG.SELECTORS.DEVICE_NAME_INPUT).val(data.deviceName);
+                $(CONFIG.SELECTORS.SSID).val(data.wifiName);
+                $(CONFIG.SELECTORS.DEVICE_USERNAME).val(data.network.deviceusername);
                 $(CONFIG.SELECTORS.SERVERURL).val(data.network.serverurl);
                 $(CONFIG.SELECTORS.DEVICEPWD).val(data.network.devicepwd || 'pengping');
+                $(CONFIG.SELECTORS.AP_NAME).val(data.network.APName);
+                $(CONFIG.SELECTORS.AP_PWD).val(data.network.APPwd);
+                $(CONFIG.SELECTORS.AP_IP).val(data.network.APIP);
+                $(CONFIG.SELECTORS.MODBUS_BAUD).val(data.network.modbusBadud);
+                $(CONFIG.SELECTORS.MODBUS_ADDR).val(data.network.modbusSlaveAddr);
             };
             return view;
         }
 
-        // ============================================
-        // 传感器数据视图 - 温度、湿度、气压等
-        // ============================================
         function createSensorView() {
             const view = createBaseView();
             view.mapping = {
                 'runTime': { selector: CONFIG.SELECTORS.RUNTIME, formatter: UTILS.formatTime },
                 'totalRunTime': { selector: CONFIG.SELECTORS.TOTAL_RUNTIME, formatter: UTILS.formatTime },
+                'ver': { selector: CONFIG.SELECTORS.VER },
+                'mode': { selector: CONFIG.SELECTORS.MODE },
+                'deviceId': { selector: CONFIG.SELECTORS.DEVICE_ID },
                 'sensors.temp': { selector: CONFIG.SELECTORS.TEMP, unit: CONFIG.UNITS.temp },
                 'sensors.wetBulbTemp': { selector: CONFIG.SELECTORS.WET_BULB_TEMP, unit: CONFIG.UNITS.wetBulbTemp },
                 'sensors.humi': { selector: CONFIG.SELECTORS.HUMI, unit: CONFIG.UNITS.humi },
                 'sensors.presure': { selector: CONFIG.SELECTORS.PRESURE, unit: CONFIG.UNITS.presure },
                 'sensors.luminance': { selector: CONFIG.SELECTORS.LUMINANCE, unit: CONFIG.UNITS.luminance },
-                'sensors.pm25': { selector: CONFIG.SELECTORS.PM25, unit: CONFIG.UNITS.pm25 }
+                'sensors.pm25': { selector: CONFIG.SELECTORS.PM25, unit: CONFIG.UNITS.pm25 },
+                'sensors.longitude': { selector: CONFIG.SELECTORS.LONGITUDE },
+                'sensors.latitude': { selector: CONFIG.SELECTORS.LATITUDE },
+                'sensors.altitude': { selector: CONFIG.SELECTORS.ALTITUDE, unit: CONFIG.UNITS.altitude }
             };
             view.update = function(deviceData) {
                 Object.entries(this.mapping).forEach(([key, config]) => {
@@ -941,18 +1103,28 @@
             return view;
         }
 
-        // ============================================
-        // 喷雾状态视图 - 空调状态、喷雾次数等
-        // ============================================
         function createSprayStatusView() {
             const view = createBaseView();
             view.mapping = {
                 'spray.airConditionerStatus': { selector: CONFIG.SELECTORS.AIR_CONDITIONER_STATUS },
                 'spray.totalSprayCount': { selector: CONFIG.SELECTORS.TOTAL_SPRAY_COUNT },
+                'spray.sprayPeriod': { selector: CONFIG.SELECTORS.SPRAY_PERIOD, unit: CONFIG.UNITS.runtime },
+                'spray.minSparyTime': { selector: CONFIG.SELECTORS.MIN_SPARY_TIME, unit: CONFIG.UNITS.runtime },
+                'spray.maxSparyTime': { selector: CONFIG.SELECTORS.MAX_SPARY_TIME, unit: CONFIG.UNITS.runtime },
+                'spray.waterAvailable': { selector: CONFIG.SELECTORS.WATER_AVAILABLE },
+                'spray.fineTemp': { selector: CONFIG.SELECTORS.FINE_TEMP, unit: CONFIG.UNITS.temp },
+                'spray.fineTempThreshold': { selector: CONFIG.SELECTORS.FINE_TEMP_THRESHOLD, unit: CONFIG.UNITS.threshold },
+                'spray.fineHThreshold': { selector: CONFIG.SELECTORS.FINE_H_THRESHOLD, unit: CONFIG.UNITS.threshold },
+                'spray.fineLThreshold': { selector: CONFIG.SELECTORS.FINE_L_THRESHOLD, unit: CONFIG.UNITS.threshold },
                 'spray.totalAddWaterCount': { selector: CONFIG.SELECTORS.TOTAL_ADD_WATER_COUNT },
                 'spray.waterMark': { selector: CONFIG.SELECTORS.WATER_MARK },
-                'spray.fineTempThreshold': { selector: CONFIG.SELECTORS.FINE_TEMP_THRESHOLD, unit: CONFIG.UNITS.threshold },
-                'spray.addWaterMinInterval': { selector: CONFIG.SELECTORS.ADD_WATER_MIN_INTERVAL, unit: CONFIG.UNITS.runtime }
+                'spray.minAddWaterInterval': { selector: CONFIG.SELECTORS.MIN_ADD_WATER_INTERVAL, unit: CONFIG.UNITS.runtime },
+                'spray.waterFillTimeOut': { selector: CONFIG.SELECTORS.WATER_FILL_TIMEOUT, unit: CONFIG.UNITS.runtime },
+                'spray.waterDischargeTimeOut': { selector: CONFIG.SELECTORS.WATER_DISCHARGE_TIMEOUT, unit: CONFIG.UNITS.runtime },
+                'spray.inWaterTDS': { selector: CONFIG.SELECTORS.IN_WATER_TDS, unit: CONFIG.UNITS.tds },
+                'spray.waterTankTDS': { selector: CONFIG.SELECTORS.WATER_TANK_TDS, unit: CONFIG.UNITS.tds },
+                'spray.waterTemp': { selector: CONFIG.SELECTORS.WATER_TEMP, unit: CONFIG.UNITS.temp },
+                'spray.waterTDSThreshold': { selector: CONFIG.SELECTORS.WATER_TDS_THRESHOLD, unit: CONFIG.UNITS.tds }
             };
             view.update = function(deviceData) {
                 Object.entries(this.mapping).forEach(([key, config]) => {
@@ -971,9 +1143,6 @@
             return view;
         }
 
-        // ============================================
-        // 开关控制视图 - 开关名称和状态
-        // ============================================
         function createSwitchView() {
             const view = createBaseView();
             view.update = function(deviceData) {
@@ -984,32 +1153,40 @@
                 $(CONFIG.SELECTORS.SWITCH_2_NAME).text(switches.sw2Name);
                 $(CONFIG.SELECTORS.SWITCH_1_NAME_INPUT).val(switches.sw1Name);
                 $(CONFIG.SELECTORS.SWITCH_2_NAME_INPUT).val(switches.sw2Name);
+                $(CONFIG.SELECTORS.SW1_NAME_DISPLAY).text(switches.sw1Name);
+                $(CONFIG.SELECTORS.SW2_NAME_DISPLAY).text(switches.sw2Name);
+
+                const sw1Status = $(CONFIG.SELECTORS.SW1_STATUS);
+                const sw2Status = $(CONFIG.SELECTORS.SW2_STATUS);
+                sw1Status.text(switches.sw1 ? 'ON' : 'OFF');
+                sw2Status.text(switches.sw2 ? 'ON' : 'OFF');
+                sw1Status.css('color', switches.sw1 ? '#27ae60' : '#95a5a6');
+                sw2Status.css('color', switches.sw2 ? '#27ae60' : '#95a5a6');
             };
             return view;
         }
 
-        // ============================================
-        // 参数设置视图 - 阈值、PWM等
-        // ============================================
         function createSettingsView() {
             const view = createBaseView();
             view.update = function(deviceData) {
                 const settings = deviceData.data.settings;
                 $(CONFIG.SELECTORS.THRESHOLD_H).val(settings.fineHThreshold);
                 $(CONFIG.SELECTORS.THRESHOLD_L).val(settings.fineLThreshold);
-                $(CONFIG.SELECTORS.SPRAY_PERIOD).val(settings.sprayPeriod);
-                $(CONFIG.SELECTORS.MIN_SPRAY_TIME).val(settings.minSparyTime);
-                $(CONFIG.SELECTORS.MIN_ADD_WATER_INTERVAL).val(settings.minAddWaterInterval);
-                $(CONFIG.SELECTORS.PWM_FREQ).val(settings.pwmFreq);
-                $(CONFIG.SELECTORS.PWM_MIN_DUTY).val(settings.pwmMinDuty);
-                $(CONFIG.SELECTORS.PWM_MAX_DUTY).val(settings.pwmMaxDuty);
+                $(CONFIG.SELECTORS.SPRAY_PERIOD_INPUT).val(settings.sprayPeriod);
+                $(CONFIG.SELECTORS.MIN_SPRAY_TIME_INPUT).val(settings.minSparyTime);
+                $(CONFIG.SELECTORS.MAX_SPRAY_TIME_INPUT).val(settings.maxSparyTime);
+                $(CONFIG.SELECTORS.MIN_ADD_WATER_INTERVAL_INPUT).val(settings.minAddWaterInterval);
+
+                const channel = $(CONFIG.SELECTORS.PWM_CHANNEL).val();
+                const pwmData = deviceData.getPWMData(channel);
+                $(CONFIG.SELECTORS.PWM_FREQ).val(pwmData.freq);
+                $(CONFIG.SELECTORS.PWM_MIN_DUTY).val(pwmData.min);
+                $(CONFIG.SELECTORS.PWM_MAX_DUTY).val(pwmData.max);
+                $(CONFIG.SELECTORS.PWM_DEFAULT_DUTY).val(pwmData.default);
             };
             return view;
         }
 
-        // ============================================
-        // 图表管理器 - 工厂模式
-        // ============================================
         function createChartManager(canvasId) {
             return {
                 canvasId: canvasId,
@@ -1105,9 +1282,6 @@
             };
         }
 
-        // ============================================
-        // 刷新控制器 - 负责数据刷新定时与协调
-        // ============================================
         function createRefreshController(deviceModel, views, dataBuffer, chart) {
             return {
                 deviceModel: deviceModel,
@@ -1120,9 +1294,7 @@
 
                 start: function() {
                     const self = this;
-                    // 立即刷新一次
                     this.refresh();
-                    // 启动定时刷新
                     this.timer = setInterval(function() {
                         if (self.shouldRefresh()) {
                             self.refresh();
@@ -1207,9 +1379,6 @@
             };
         }
 
-        // ============================================
-        // 事件控制器 - 负责所有用户交互事件处理
-        // ============================================
         function createEventController(refreshController) {
             return {
                 refreshController: refreshController,
@@ -1217,13 +1386,11 @@
                 bindEvents: function() {
                     const self = this;
 
-                    // 标签页切换
                     $('.tabs .tab-radio').change(function() {
                         var tabId = $(this).attr('id').replace('tab-', '');
                         self.switchTab(tabId);
                     });
 
-                    // 按钮事件
                     $(CONFIG.SELECTORS.BTN_SWITCH).click(function() {
                         self.handleSwitchSetting();
                     });
@@ -1244,14 +1411,16 @@
                         self.handleScanAP();
                     });
 
-                    // WiFi列表项点击
+                    $(CONFIG.SELECTORS.BTN_NETWORK_APPLY).click(function() {
+                        self.handleNetworkApply();
+                    });
+
                     $(CONFIG.SELECTORS.AP_LIST).on('click', '.chip', function() {
                         const ssid = $(this).find('.chip-content').text();
                         $(CONFIG.SELECTORS.SSID).val(ssid);
                         self.hideAPList();
                     });
 
-                    // 模态框关闭
                     $(CONFIG.SELECTORS.SELECT_WIFI_MODAL).on('click', '.modal-overlay', function() {
                         self.hideAPList();
                     });
@@ -1262,9 +1431,9 @@
                     $('#tab-' + tabId + '-section').show();
                 },
 
-                showSensorSection: function() {
-                    $('#tab-sensor').prop('checked', true);
-                    this.switchTab('sensor');
+                showMonitorSection: function() {
+                    $('#tab-monitor').prop('checked', true);
+                    this.switchTab('monitor');
                 },
 
                 showSettingSection: function() {
@@ -1297,18 +1466,26 @@
                     $btn.addClass('loading').prop('disabled', true);
                     this.refreshController.pause();
 
+                    const channel = $(CONFIG.SELECTORS.PWM_CHANNEL).val();
+                    const baseParam = 'pwm' + channel;
+
                     const url = UTILS.formatString(
-                        '{0}?mode=set&devicepwd={1}&fineHThreshold={2}&fineLThreshold={3}&pwmFreq={4}&pwmMinDuty={5}&pwmMaxDuty={6}&sprayPeriod={7}&minSparyTime={8}&minAddWaterInterval={9}&sw1={10}&sw2={11}',
+                        '{0}?mode=set&devicepwd={1}&fineHThreshold={2}&fineLThreshold={3}&{4}freq={5}&{4}min={6}&{4}max={7}&{4}default={8}&sprayPeriod={9}&minSparyTime={10}&maxSparyTime={11}&minAddWaterInterval={12}&sw1name={13}&sw2name={14}&sw1={15}&sw2={16}',
                         CONFIG.API.STATUS,
                         $(CONFIG.SELECTORS.DEVICEPWD).val(),
                         $(CONFIG.SELECTORS.THRESHOLD_H).val(),
                         $(CONFIG.SELECTORS.THRESHOLD_L).val(),
+                        baseParam,
                         $(CONFIG.SELECTORS.PWM_FREQ).val(),
                         $(CONFIG.SELECTORS.PWM_MIN_DUTY).val(),
                         $(CONFIG.SELECTORS.PWM_MAX_DUTY).val(),
-                        $(CONFIG.SELECTORS.SPRAY_PERIOD).val(),
-                        $(CONFIG.SELECTORS.MIN_SPRAY_TIME).val(),
-                        $(CONFIG.SELECTORS.MIN_ADD_WATER_INTERVAL).val(),
+                        $(CONFIG.SELECTORS.PWM_DEFAULT_DUTY).val(),
+                        $(CONFIG.SELECTORS.SPRAY_PERIOD_INPUT).val(),
+                        $(CONFIG.SELECTORS.MIN_SPRAY_TIME_INPUT).val(),
+                        $(CONFIG.SELECTORS.MAX_SPRAY_TIME_INPUT).val(),
+                        $(CONFIG.SELECTORS.MIN_ADD_WATER_INTERVAL_INPUT).val(),
+                        encodeURIComponent($(CONFIG.SELECTORS.SWITCH_1_NAME_INPUT).val()),
+                        encodeURIComponent($(CONFIG.SELECTORS.SWITCH_2_NAME_INPUT).val()),
                         $(CONFIG.SELECTORS.SWITCH_1).is(':checked') ? 'true' : 'false',
                         $(CONFIG.SELECTORS.SWITCH_2).is(':checked') ? 'true' : 'false'
                     );
@@ -1319,6 +1496,45 @@
                             const resJson = UTILS.parseJSON(response);
                             self.handleResponse(resJson, {
                                 '0': '设置成功!',
+                                '-1': '密码错误!'
+                            });
+                        })
+                        .fail(function(error) {
+                            UTILS.showMessage('错误', '请求失败', 'error');
+                        })
+                        .always(function() {
+                            $btn.removeClass('loading').prop('disabled', false);
+                            self.refreshController.resume();
+                        });
+                },
+
+                handleNetworkApply: function() {
+                    const $btn = $(CONFIG.SELECTORS.BTN_NETWORK_APPLY);
+                    $btn.addClass('loading').prop('disabled', true);
+                    this.refreshController.pause();
+
+                    const url = UTILS.formatString(
+                        '{0}?mode=set&devicepwd={1}&devicename={2}&deviceusername={3}&wifiname={4}&wifipwd={5}&APName={6}&APPwd={7}&APIP={8}&serverurl={9}&modbusBadud={10}&modbusSlaveAddr={11}',
+                        CONFIG.API.STATUS,
+                        $(CONFIG.SELECTORS.DEVICEPWD).val(),
+                        $(CONFIG.SELECTORS.DEVICE_NAME_INPUT).val(),
+                        $(CONFIG.SELECTORS.DEVICE_USERNAME).val(),
+                        $(CONFIG.SELECTORS.SSID).val(),
+                        $(CONFIG.SELECTORS.INPUT_PWD).val(),
+                        $(CONFIG.SELECTORS.AP_NAME).val(),
+                        $(CONFIG.SELECTORS.AP_PWD).val(),
+                        $(CONFIG.SELECTORS.AP_IP).val(),
+                        $(CONFIG.SELECTORS.SERVERURL).val(),
+                        $(CONFIG.SELECTORS.MODBUS_BAUD).val(),
+                        $(CONFIG.SELECTORS.MODBUS_ADDR).val()
+                    );
+
+                    const self = this;
+                    $.get(url)
+                        .done(function(response) {
+                            const resJson = UTILS.parseJSON(response);
+                            self.handleResponse(resJson, {
+                                '0': '网络设置应用成功!',
                                 '-1': '密码错误!'
                             });
                         })
@@ -1401,15 +1617,21 @@
                     this.refreshController.pause();
 
                     const url = UTILS.formatString(
-                        '{0}?ssid={1}&pwd={2}&serverurl={3}&devicepwd={4}&devicename={5}&sw1name={6}&sw2name={7}',
+                        '{0}?ssid={1}&pwd={2}&serverurl={3}&devicepwd={4}&devicename={5}&deviceusername={6}&sw1name={7}&sw2name={8}&APName={9}&APPwd={10}&APIP={11}&modbusBadud={12}&modbusSlaveAddr={13}',
                         CONFIG.API.SET_WIFI,
-                        $(CONFIG.SELECTORS.SSID).val(),
-                        $(CONFIG.SELECTORS.INPUT_PWD).val(),
+                        encodeURIComponent($(CONFIG.SELECTORS.SSID).val()),
+                        encodeURIComponent($(CONFIG.SELECTORS.INPUT_PWD).val()),
                         $(CONFIG.SELECTORS.SERVERURL).val(),
                         $(CONFIG.SELECTORS.DEVICEPWD).val(),
-                        $(CONFIG.SELECTORS.DEVICE_NAME_INPUT).val(),
-                        $(CONFIG.SELECTORS.SWITCH_1_NAME_INPUT).val(),
-                        $(CONFIG.SELECTORS.SWITCH_2_NAME_INPUT).val()
+                        encodeURIComponent($(CONFIG.SELECTORS.DEVICE_NAME_INPUT).val()),
+                        encodeURIComponent($(CONFIG.SELECTORS.DEVICE_USERNAME).val()),
+                        encodeURIComponent($(CONFIG.SELECTORS.SWITCH_1_NAME_INPUT).val()),
+                        encodeURIComponent($(CONFIG.SELECTORS.SWITCH_2_NAME_INPUT).val()),
+                        encodeURIComponent($(CONFIG.SELECTORS.AP_NAME).val()),
+                        $(CONFIG.SELECTORS.AP_PWD).val(),
+                        $(CONFIG.SELECTORS.AP_IP).val(),
+                        $(CONFIG.SELECTORS.MODBUS_BAUD).val(),
+                        $(CONFIG.SELECTORS.MODBUS_ADDR).val()
                     );
 
                     const self = this;
@@ -1442,16 +1664,11 @@
             };
         }
 
-        // ============================================
-        // 应用主模块 - 组装所有组件
-        // ============================================
         const App = {
             init: function() {
-                // 创建数据模型
                 const dataBuffer = createDataBuffer();
                 const deviceData = createDeviceData();
 
-                // 创建视图
                 const views = [
                     createDeviceInfoView(),
                     createSensorView(),
@@ -1460,14 +1677,14 @@
                     createSettingsView()
                 ];
 
-                // 创建图表管理器
                 const chart = createChartManager('monitorChart').init();
 
-                // 创建控制器
                 const refreshCtrl = createRefreshController(deviceData, views, dataBuffer, chart);
                 const eventCtrl = createEventController(refreshCtrl);
 
-                // 绑定事件并启动
+                window.eventController = eventCtrl;
+                window.currentDeviceData = deviceData;
+
                 eventCtrl.bindEvents();
                 refreshCtrl.start();
 
@@ -1475,13 +1692,33 @@
             }
         };
 
-        // ============================================
-        // 启动应用
-        // ============================================
+        function switchPWMChannel(channel) {
+            const deviceData = window.currentDeviceData;
+            if (!deviceData) {
+                return;
+            }
+            const pwmData = deviceData.getPWMData(channel);
+            if (pwmData) {
+                $(CONFIG.SELECTORS.PWM_FREQ).val(pwmData.freq);
+                $(CONFIG.SELECTORS.PWM_MIN_DUTY).val(pwmData.min);
+                $(CONFIG.SELECTORS.PWM_MAX_DUTY).val(pwmData.max);
+                $(CONFIG.SELECTORS.PWM_DEFAULT_DUTY).val(pwmData.default);
+            }
+        }
+
+        function toggleSwitch(switchId) {
+            const checkbox = switchId === 1 ? CONFIG.SELECTORS.SWITCH_1 : CONFIG.SELECTORS.SWITCH_2;
+            const $cb = $(checkbox);
+            $cb.prop('checked', !$cb.is(':checked'));
+            const eventCtrl = window.eventController;
+            if (eventCtrl) {
+                eventCtrl.handleSwitchSetting();
+            }
+        }
+
         $(document).ready(function() {
             App.init();
         });
     </script>
 </body>
-
 </html>

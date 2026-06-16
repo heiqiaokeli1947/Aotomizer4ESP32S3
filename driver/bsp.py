@@ -91,10 +91,10 @@ class BSP:
 
     def initHW(self):
         print("init pwm...")
-        self.__pwmWaterBump = PWM(Pin(10),freq=self.config["pwm1freq"], duty=self.config["pwm1default"])
+        self.__pwmWaterBump = PWM(Pin(10),freq=int(self.config["pwm1freq"]), duty=int(self.config["pwm1default"]))
         self.__fanSpeed = 0
-        self.__fan1PwmPin = PWM(Pin(46),freq=self.config["pwm2freq"], duty=self.config["pwm2default"])
-        self.__fan2PwmPin = PWM(Pin(9),freq=self.config["pwm3freq"], duty=self.config["pwm3default"])
+        self.__fan1PwmPin = PWM(Pin(46),freq=int(self.config["pwm2freq"]), duty=int(self.config["pwm2default"]))
+        self.__fan2PwmPin = PWM(Pin(9),freq=int(self.config["pwm3freq"]), duty=int(self.config["pwm3default"]))
 
     def setLEDArray(self, color):
         for i in range(1):
@@ -132,12 +132,12 @@ class BSP:
         if percent == 0:
             duty = 0
         else:
-            base = (self.config["pwm1min"]/100)*self.config["pwm1freq"]
-            full = (self.config["pwm1max"] - self.config["pwm1min"])/100*self.config["pwm1freq"]
-            duty = 1023*(full * (percent / 100.0) + base) /self.config["pwm1freq"]
+            base = (int(self.config["pwm1min"])/100)*int(self.config["pwm1freq"])
+            full = (int(self.config["pwm1max"]) - int(self.config["pwm1min"]))/100*int(self.config["pwm1freq"])
+            duty = 1023*(full * (percent / 100.0) + base) /int(self.config["pwm1freq"])
             print("base:{},full:{},duty:{}".format(base,full,int(duty)))
-            if duty > self.config["pwm1freq"]:
-                duty = self.config["pwm1freq"]
+            if duty > int(self.config["pwm1freq"]):
+                duty = int(self.config["pwm1freq"])
         #第1组用于直接控制mos，给风扇供应电源
         if duty == 0:
             self.__fan1PwmPin.duty(0)
