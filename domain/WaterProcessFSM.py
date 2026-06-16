@@ -21,7 +21,6 @@ class FSM:
         self.waterMark = enum.WaterMark.FULL
         self.waterDischargeStartTime = 0
         self.waterFillStartTime = 0
-        self.waterAvailable = False
         # 约365s从刚下到低水位加到高水位
         self.waterFillTimeOut = self.config["waterFillTimeOut"]
         self.waterDischargeTimeOut = self.config["waterDischargeTimeOut"] #55s=2L
@@ -34,11 +33,12 @@ class FSM:
             db.save({"totalAddWaterCount":str(self.totalAddWaterCount)})
         
         self.lastAddWaterTime = 0
-        self.airConditionerStatus = 0
 
+        self.airConditionerStatus = 0
         self.inWaterTDS = 0
         self.waterTankTDS = 0
-        self.waterTDSThreshold = self.config["waterTDSThreshold"]
+        self.waterTemp = 0
+        self.waterAvailable = False
         
 
         self.switch = {STATUS.INIT: self.initDevice,
@@ -55,14 +55,14 @@ class FSM:
                 "waterMark":self.waterMark,
                 "inWaterTDS":self.inWaterTDS,
                 "waterTankTDS":self.waterTankTDS,
-                "waterAvailable":self.waterAvailable}
+                "waterAvailable":self.waterAvailable,
+                "waterTemp":self.waterTemp}
 
     def saveData(self):
         db.save({"totalAddWaterCount":str(self.totalAddWaterCount)})
 
     def reloadConfig(self):
         self.minAddWaterInterval = int(self.config["minAddWaterInterval"])
-        self.waterTDSThreshold = int(self.config["waterTDSThreshold"])
         self.waterFillTimeOut = int(self.config["waterFillTimeOut"])
         self.waterDischargeTimeOut = int(self.config["waterDischargeTimeOut"]) #55s=2L
 
@@ -75,12 +75,6 @@ class FSM:
     def checkWaterMark(self):
         #初始化所有执行器
         self.setDeviceToReadyStatus()
-
-        #检查水质
-        if self.waterTankTDS < self.waterTDSThreshold:
-            self.waterAvailable = True
-        else:
-            self.waterAvailable = False
 
         if enum.WaterMark.NORMAL == self.bspInstance.getWaterTankStatus() or enum.WaterMark.FULL == self.bspInstance.getWaterTankStatus():
             self.status = STATUS.READY
@@ -134,19 +128,18 @@ class FSM:
                 self.waterDischargeTimeOut - (self.runTimeCounter - self.waterDischargeStartTime)))
             return
 
-    def getWaterTDS(self):
-        self.inWaterTDS = 0
-        self.waterTankTDS = 0
-
-    def getWaterMark(self):
+    def getWaterParam(self):
+        self.inWaterTDS = self.bspInstance.getSensorData().inWaterTDS
+        self.waterTankTDS = self.bspInstance.getSensorData().waterTankTDS
+        self.waterTemp = self.bspInstance.getSensorData().waterTemp
+        self.waterAvailable = self.bspInstance.getWaterAvailableStatus()
         self.waterMark = self.bspInstance.getWaterTankStatus()
 
     def getAirConditonerStatus(self):
         self.airConditionerStatus = self.bspInstance.getAirconditionerStatus()
 
     def readSystemSensor(self):
-        self.getWaterTDS()
-        self.getWaterMark()
+        self.getWaterParam()
         self.getAirConditonerStatus()
 
     def setDeviceToReadyStatus(self):

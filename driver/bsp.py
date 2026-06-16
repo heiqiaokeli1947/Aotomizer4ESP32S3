@@ -218,6 +218,12 @@ class BSP:
 
     def getfanSpeed(self):
         return self.__fanSpeed
+
+    def getWaterAvailableStatus(self):
+        if self.__sensorData.__waterTankTDS < int(self.config["waterTDSThreshold"]):
+            return True
+        else:
+            return False
     
     @classmethod
     def getInstance(cls):

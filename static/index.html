@@ -91,7 +91,44 @@
             display: block;
         }
 
-        /* Card 内部网格 - 使用自定义类名避免与 spectre.css 冲突 */
+        /* 响应式卡片网格容器 - 手机1列，大屏幕自动适应 */
+        .card-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 1rem;
+            padding: 0.5rem;
+        }
+
+        @media (min-width: 576px) {
+            .card-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (min-width: 768px) {
+            .card-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (min-width: 992px) {
+            .card-grid {
+                grid-template-columns: repeat(3, 1fr);
+            }
+        }
+
+        @media (min-width: 1200px) {
+            .card-grid {
+                grid-template-columns: repeat(4, 1fr);
+            }
+        }
+
+        /* 卡片在网格中自适应 */
+        .card-grid > .card-wrapper {
+            width: 100%;
+        }
+
+        /* Card 内部网格 */
         .grid-3 {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
@@ -209,9 +246,9 @@
                         </div>
 
                         <!-- 卡片网格容器 -->
-                        <div class="columns col-mx-auto" style="max-width: 100%;">
+                        <div class="card-grid">
                             <!-- 喷雾状态卡片 -->
-                            <div class="column col-6 col-sm-6 col-md-6 col-lg-3">
+                            <div class="card-wrapper">
                                 <div class="card">
                                     <div class="card-header bg-blue">
                                         <div class="card-title h5 text-white">喷雾状态</div>
@@ -250,7 +287,7 @@
                             </div>
 
                             <!-- 环境参数卡片 -->
-                            <div class="column col-6 col-sm-6 col-md-6 col-lg-3">
+                            <div class="card-wrapper">
                                 <div class="card">
                                     <div class="card-header bg-green">
                                         <div class="card-title h5 text-white">环境参数</div>
@@ -289,7 +326,7 @@
                             </div>
 
                             <!-- 运行时间卡片 -->
-                            <div class="column col-12 col-sm-12 col-md-12 col-lg-6">
+                            <div class="card-wrapper">
                                 <div class="card">
                                     <div class="card-header">
                                         <div class="card-title h5">运行时间</div>

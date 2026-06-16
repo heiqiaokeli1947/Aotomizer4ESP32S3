@@ -118,42 +118,11 @@ class FSM:
             # 关闭水泵-->转移到self.setDeviceToReadyStatus()
             self.status = STATUS.READY
 
-    def checkWaterTankFillTimeout(self):
-        if self.runTimeCounter - self.waterFillStartTime >= self.waterFillTimeOut:
-            #补水超时故障
-            print("[ERROR]fill water time out.")
-            self.lastAddWaterTime = self.runTimeCounter
-            self.status = STATUS.READY
-            # 关闭排水/进水电磁阀-->转移到self.setDeviceToReadyStatus()
-        elif self.waterMark == enum.WaterMark.FULL:
-            #关闭补水设备，或者在READY里处理此设备
-            print("[OK]fill water to full success")
-            self.lastAddWaterTime = self.runTimeCounter
-            self.addWaterCount += 1
-            self.status = STATUS.READY
-            # 关闭排水电磁阀-->转移到self.setDeviceToReadyStatus()
-            # 可以依赖Ready状态的设置，放这里是为了快速响应
-            self.bspInstance.setEV(enum.EV.WATER_INPUT_EV, enum.Switch.OFF)
-        else:  #未超时，继续补水
-            print("continue fill water.{}".format(self.waterFillTimeOut - (self.runTimeCounter - self.waterFillStartTime)))
-            return
-
-    def checkWaterDischargeTimeout(self):
-        if self.runTimeCounter - self.waterDischargeStartTime >= self.waterDischargeTimeOut:
-            #排废水完成
-            print("water discharge finish.")
-            self.status = STATUS.WATER_DISCHARGE_OK
-            # 启动进水
-            self.bspInstance.setEV(enum.EV.WASTE_WATER_EV, enum.Switch.OFF)
-            self.bspInstance.setEV(enum.EV.WATER_INPUT_EV, enum.Switch.ON)
-            self.waterFillStartTime = self.runTimeCounter
-        else:  #未超时，继续排废水
-            print("continue discharge water.{}".format(
-                self.waterDischargeTimeOut - (self.runTimeCounter - self.waterDischargeStartTime)))
-            return
-
     def checkOverTemperature(self):
-        if self.finTemp > self.fineLThreshold:
+        if self.bspInstance.getWaterAvailableStatus() == False:
+            print("[ERROR]Water inavailable.")
+            self.status = STATUS.READY
+        elif self.finTemp > self.fineLThreshold:
             self.status = STATUS.OVER_TEMP
             self.lastOverTempTime = self.runTimeCounter
             self.totalSprayCount += 1
