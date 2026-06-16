@@ -929,7 +929,7 @@
 
                         spray: {
                             airConditionerStatus: (rawData.airConditionerStatus === 0 || rawData.airConditionerStatus === 1)
-                                ? (rawData.airConditionerStatus === 1 ? 'ON' : 'OFF')
+                                ? (rawData.airConditionerStatus === 1 ? '开' : '关')
                                 : (rawData.airConditionerStatus || '---'),
                             totalSprayCount: rawData.totalSprayCount || 0,
                             totalAddWaterCount: rawData.totalAddWaterCount || 0,
@@ -1158,8 +1158,8 @@
 
                 const sw1Status = $(CONFIG.SELECTORS.SW1_STATUS);
                 const sw2Status = $(CONFIG.SELECTORS.SW2_STATUS);
-                sw1Status.text(switches.sw1 ? 'ON' : 'OFF');
-                sw2Status.text(switches.sw2 ? 'ON' : 'OFF');
+                sw1Status.text(switches.sw1 ? '开' : '关');
+                sw2Status.text(switches.sw2 ? '开' : '关');
                 sw1Status.css('color', switches.sw1 ? '#27ae60' : '#95a5a6');
                 sw2Status.css('color', switches.sw2 ? '#27ae60' : '#95a5a6');
             };

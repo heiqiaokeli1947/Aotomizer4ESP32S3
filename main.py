@@ -74,7 +74,8 @@ defaulteSystemConfig = {
     "minAddWaterInterval": 2400,
     "sprayPeriod": 40,
     "minSparyTime": 5,
-    "maxSparyTime": 12
+    "maxSparyTime": 12,
+    "ver": "1.1"
 }
 
 systemConfig = db.get("systemConfig")
@@ -103,9 +104,9 @@ def createDefaultConfig():
     db.save({"systemConfig": ujson.dumps(defaulteSystemConfig)})
 
 
-startTime = utime.time()
+bootTime = utime.time()  # 记录启动时间，用于计算本次开机运行时间
+initialBootTime = bootTime  # 记录初始启动时间（不会被更新）
 totalRunTime = 0
-bootTime = startTime  # 记录启动时间，用于计算本次开机运行时间
 
 if db.get("totalRunTime") is not None:
     totalRunTime = int(db.get("totalRunTime"))
@@ -287,7 +288,7 @@ def handler(request):
         res["presure"] = bspInstance.getSensorData().presure
         res["luminance"] = bspInstance.getSensorData().luminance
         res["pm25"] = bspInstance.getSensorData().pm25
-        res["runTime"] = utime.time() - bootTime  # 本次开机运行时间（秒）
+        res["runTime"] = utime.time() - initialBootTime  # 本次开机运行时间（秒）
         res["totalRunTime"] = totalRunTime
         res.update(fsmList["aotomizerFSM"].getStatus())
         res.update(fsmList["waterProcessFSM"].getStatus())
@@ -544,16 +545,14 @@ except OSError as e:
 
 
 def sysTask():
-    global runCounter
     global totalRunTime
-    global startTime
-    runCounter = utime.time()
-    totalRunTime += (runCounter - startTime)
-    startTime = runCounter
+    global bootTime
+    currentTime = utime.time()
+    totalRunTime += (currentTime - bootTime)
+    bootTime = currentTime
 
 
 loopCounter = 0  # 循环计数器，用于定时判断
-runCounter = 0
 while True:
     sysTask()
 
