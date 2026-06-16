@@ -1,0 +1,104 @@
+前端页面优化方案:
+
+【总原则】:尽量维持现有index.html里的布局、模式，包括代码架构，减少大范围修改的风险。
+
+【优化要求如下】:
+1.页面分为3个tab,分别是:“系统监控”、“参数设置”、“网络设置”，其中“系统监控”就是当前的“传感器数据”页面， “参数设置”、“网络设置”页面维持现在的模式，支持实时展示参数和设置新值，编辑参数的时候不要调用status接口刷新参数,这些参数适合翻译的就翻译成中文(下发的时候不要用翻译名，用原来的名字)，参数值是枚举值的情况要转换为文字。
+
+2.“系统监控页”面首先是当前的波形图维持不变，然后按如下分组，以多个块的方式展示参数，模式跟当前页面的“实时数据”区域模式一样。
+	#环境信息
+		temp
+		humi
+		wetBulbTemp
+		presure
+		luminance
+		pm25
+		longitude
+		latitude
+		altitude
+		
+	#喷雾状态 
+		totalSprayCount
+		sprayPeriod
+		minSparyTime
+		maxSparyTime
+		waterAvailable
+		fineTemp
+		fineTempThreshold
+		fineHThreshold
+		fineLThreshold
+		airConditionerStatus
+		
+	#水处理状态
+		totalAddWaterCount
+		waterMark
+		minAddWaterInterval
+		waterFillTimeOut
+		waterDischargeTimeOut
+		inWaterTDS
+		waterTankTDS
+		waterTemp
+		waterTDSThreshold
+		
+	#开关状态
+		sw1 #动态替换为sw1name对应的名字，然后展示开关状态，手动改变开关状态时触发后台请求(模仿status接口的set模式)，下发参数状态，后台增加对应的处理逻辑，留一个桩，打印日志就行。
+		sw2 #动态替换为sw2name对应的名字，然后展示开关状态
+		
+	#运行统计
+		runTime
+		totalRunTime
+		ver
+		mode
+		deviceId
+
+
+
+3.“参数设置”页面维持当前“参数设置”页面的逻辑，分区域支持如下参数设置，提供一个"应用"按钮，触发参数设置请求，与现在"Apply setting"按钮的逻辑一致，另外2个按钮也保留。
+	#开关名称设置
+		sw1name
+		sw2name
+
+	#PWM配置  注意:要将4组PWM配置作为下拉菜单或者更好的形式，一次只展示一组参数，避免同时显示参数
+		pwm1freq
+		pwm1min
+		pwm1max
+		pwm1default
+		
+		pwm2freq
+		pwm2min
+		pwm2max
+		pwm2default
+		
+		pwm3freq
+		pwm3min
+		pwm3max
+		pwm3default
+		
+		pwm4freq
+		pwm4min
+		pwm4max
+		pwm4default
+
+
+
+4.“网络设置”页面维持当前“网络设置”页面的逻辑，分区域支持如下参数设置，提供一个"应用"按钮，触发参数设置请求
+	#设备参数
+		devicename
+		deviceusername
+		devicepwd
+
+	#WiFi
+		wifiname  这个参数维持当前"scan ap"按钮的逻辑
+		wifipwd
+
+	#AP热点
+		APName
+		APPwd
+		APIP
+
+	#远程服务器
+		serverurl
+
+	#Modbus 
+		modbusBadud
+		modbusSlaveAddr

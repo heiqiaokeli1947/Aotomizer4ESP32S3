@@ -28,11 +28,10 @@ print("software version:202606141506")
 print("start begin...")
 
 defaulteSystemConfig = {"deviceusername": "admin", "devicepwd": "pengping", "wifipwdDefault": "13438045703",
-                        "devicetype": "Micropython", "num2name": "Atomizer", "APName": "Atomizer", "sw2name": "S2",
-                        "id": 1, "wifiname": "cissco_2g", "ver": "1.1", "serverurl": "192.168.1.124",
+                        "devicetype": "Micropython", "APName": "Atomizer", "sw2name": "S2",
                         "APNetMask": "255.255.255.0", "altitude": 498, "wifinameDefault": "IOT_2G",
-                        "latitude": 30.67831, "serverurlDefault": "http://3a892544f7.qicp.vip", "APPwd": "Changeme_123",
-                        "devicename": "Aotomizer", "num1name": "Tree temprature", "rangename": "Tree light",
+                        "latitude": 30.67831, "serverurl": "http://3a892544f7.qicp.vip", "APPwd": "Changeme_123",
+                        "devicename": "Aotomizer", 
                         "mode": "normal", "sw1name": "S1", "wifipwd": "13438045703", "APGateway": "192.168.1.1",
                         "APIP": "123", "longitude": 104.0375, "pwm1freq": 25000, "pwm1default": 0, "pwm1min": 15,
                         "pwm1max": 100, "pwm2freq": 25000, "pwm2default": 0, "pwm2min": 15, "pwm2max": 100,
@@ -40,7 +39,8 @@ defaulteSystemConfig = {"deviceusername": "admin", "devicepwd": "pengping", "wif
                         "pwm4default": 0, "pwm4min": 15, "pwm4max": 100, "sw1": True, "sw2": False,
                         "fineHThreshold": 36, "fineLThreshold": 31.5,
                         "modbusSlaveAddr": 6, "modbusBadud": 38400, "deviceId": "", "waterTDSThreshold": 10,
-                        "waterDischargeTimeOut": 60,"waterFillTimeOut": 850,"minAddWaterInterval": 2400,"sprayPeriod": 40,"minSparyTime": 5}
+                        "waterDischargeTimeOut": 60,"waterFillTimeOut": 850,"minAddWaterInterval": 2400,
+                        "sprayPeriod": 40,"minSparyTime": 5,"maxSparyTime": 12}
 
 systemConfig = db.get("systemConfig")
 
