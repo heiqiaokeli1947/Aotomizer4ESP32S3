@@ -845,7 +845,7 @@
 
             formatString: function(str, ...args) {
                 return str.replace(/\{(\d+)\}/g, function(m, i) {
-                    return args[parseInt(i)] || '';
+                    return args[parseInt(i)] !== undefined ? args[parseInt(i)] : '';
                 });
             }
         };
@@ -1468,20 +1468,26 @@
 
                     // 获取 deviceData 中的所有 PWM 通道参数
                     const deviceData = window.currentDeviceData;
-                    const pwmObj = deviceData ? deviceData.data.pwm : {};
 
                     // 先保存当前通道的修改
                     const currentChannel = $(CONFIG.SELECTORS.PWM_CHANNEL).val();
                     saveCurrentPWMChannel(deviceData, currentChannel);
 
-                    // 获取所有 PWM 通道参数（从 deviceData 中获取最新的）
-                    const pwmData = deviceData ? deviceData.data.pwm : {};
-                    const pwm1 = pwmData[1] || { freq: 25000, min: 15, max: 100, default: 0 };
-                    const pwm2 = pwmData[2] || { freq: 25000, min: 15, max: 100, default: 0 };
-                    const pwm3 = pwmData[3] || { freq: 25000, min: 15, max: 100, default: 0 };
+                    // 获取所有 PWM 通道参数（从 deviceData.pwmData 中获取最新的）
+                    const pwmData = deviceData ? deviceData.pwmData : null;
+                    const pwm1 = pwmData && pwmData[1] ? pwmData[1] : { freq: 25000, min: 15, max: 100, default: 0 };
+                    const pwm2 = pwmData && pwmData[2] ? pwmData[2] : { freq: 25000, min: 15, max: 100, default: 0 };
+                    const pwm3 = pwmData && pwmData[3] ? pwmData[3] : { freq: 25000, min: 15, max: 100, default: 0 };
+                    const pwm4 = pwmData && pwmData[4] ? pwmData[4] : { freq: 25000, min: 15, max: 100, default: 0 };
+
+                    // 确保 default 值不为空
+                    const pwm1default = pwm1.default !== undefined && pwm1.default !== '' ? pwm1.default : 0;
+                    const pwm2default = pwm2.default !== undefined && pwm2.default !== '' ? pwm2.default : 0;
+                    const pwm3default = pwm3.default !== undefined && pwm3.default !== '' ? pwm3.default : 0;
+                    const pwm4default = pwm4.default !== undefined && pwm4.default !== '' ? pwm4.default : 0;
 
                     const url = UTILS.formatString(
-                        '{0}?mode=set&devicepwd={1}&fineHThreshold={2}&fineLThreshold={3}&pwm1freq={4}&pwm1min={5}&pwm1max={6}&pwm1default={7}&pwm2freq={8}&pwm2min={9}&pwm2max={10}&pwm2default={11}&pwm3freq={12}&pwm3min={13}&pwm3max={14}&pwm3default={15}&sprayPeriod={16}&minSparyTime={17}&maxSparyTime={18}&minAddWaterInterval={19}&sw1name={20}&sw2name={21}&sw1={22}&sw2={23}',
+                        '{0}?mode=set&devicepwd={1}&fineHThreshold={2}&fineLThreshold={3}&pwm1freq={4}&pwm1min={5}&pwm1max={6}&pwm1default={7}&pwm2freq={8}&pwm2min={9}&pwm2max={10}&pwm2default={11}&pwm3freq={12}&pwm3min={13}&pwm3max={14}&pwm3default={15}&pwm4freq={16}&pwm4min={17}&pwm4max={18}&pwm4default={19}&sprayPeriod={20}&minSparyTime={21}&maxSparyTime={22}&minAddWaterInterval={23}&sw1name={24}&sw2name={25}&sw1={26}&sw2={27}',
                         CONFIG.API.STATUS,
                         $(CONFIG.SELECTORS.DEVICEPWD).val(),
                         $(CONFIG.SELECTORS.THRESHOLD_H).val(),
@@ -1489,15 +1495,19 @@
                         pwm1.freq,
                         pwm1.min,
                         pwm1.max,
-                        pwm1.default,
+                        pwm1default,
                         pwm2.freq,
                         pwm2.min,
                         pwm2.max,
-                        pwm2.default,
+                        pwm2default,
                         pwm3.freq,
                         pwm3.min,
                         pwm3.max,
-                        pwm3.default,
+                        pwm3default,
+                        pwm4.freq,
+                        pwm4.min,
+                        pwm4.max,
+                        pwm4default,
                         $(CONFIG.SELECTORS.SPRAY_PERIOD_INPUT).val(),
                         $(CONFIG.SELECTORS.MIN_SPRAY_TIME_INPUT).val(),
                         $(CONFIG.SELECTORS.MAX_SPRAY_TIME_INPUT).val(),
@@ -1702,6 +1712,7 @@
 
                 window.eventController = eventCtrl;
                 window.currentDeviceData = deviceData;
+                window.currentPWMChannel = $(CONFIG.SELECTORS.PWM_CHANNEL).val();  // 跟踪当前PWM通道
 
                 eventCtrl.bindEvents();
                 refreshCtrl.start();
@@ -1712,11 +1723,12 @@
 
         function switchPWMChannel(newChannel) {
             const deviceData = window.currentDeviceData;
-            if (!deviceData) {
+            if (!deviceData || !deviceData.data) {
                 return;
             }
             // 保存当前通道的参数到 deviceData，防止切换后修改丢失
-            const currentChannel = $(CONFIG.SELECTORS.PWM_CHANNEL).val();
+            // 注意：此时 select 的值已经是 newChannel 了，所以要用 window.currentPWMChannel
+            const currentChannel = window.currentPWMChannel;
             saveCurrentPWMChannel(deviceData, currentChannel);
             // 加载新通道的参数
             const pwmData = deviceData.getPWMData(newChannel);
@@ -1726,6 +1738,8 @@
                 $(CONFIG.SELECTORS.PWM_MAX_DUTY).val(pwmData.max);
                 $(CONFIG.SELECTORS.PWM_DEFAULT_DUTY).val(pwmData.default);
             }
+            // 更新当前通道跟踪变量
+            window.currentPWMChannel = newChannel;
         }
 
         // 保存当前 PWM 通道参数到 deviceData
@@ -1733,7 +1747,7 @@
             if (!deviceData || !channel) {
                 return;
             }
-            const pwmObj = deviceData.data.pwm;
+            const pwmObj = deviceData.pwmData;
             if (pwmObj && pwmObj[channel]) {
                 pwmObj[channel].freq = parseInt($(CONFIG.SELECTORS.PWM_FREQ).val()) || 0;
                 pwmObj[channel].min = parseInt($(CONFIG.SELECTORS.PWM_MIN_DUTY).val()) || 0;
