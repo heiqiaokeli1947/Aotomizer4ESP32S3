@@ -16,7 +16,7 @@ Aotomizer4ESP32S3 - 空调外机智能喷雾降温控制系统
 - **前端框架**: Spectre CSS + jQuery + Chart.js
 
 ### 1.4 软件版本
-当前版本: `202606141506`
+当前版本: `202606170000`
 
 ---
 
@@ -425,6 +425,8 @@ def ts(self, tg, rh_target, diff=0.1):
     "mode": "normal",
     "sw1": true,
     "sw2": false,
+    "sw1name": "灯光",
+    "sw2name": "风扇",
     "temp": 25.6,
     "humi": 65.2,
     "wetBulbTemp": 20.3,
@@ -440,16 +442,28 @@ def ts(self, tg, rh_target, diff=0.1):
     "fineLThreshold": 37.5,
     "sprayPeriod": 40,
     "minSparyTime": 3,
+    "maxSparyTime": 10,
     "minAddWaterInterval": 2400,
-    "pwmFreq": 25000,
-    "pwmMinDuty": 15,
-    "pwmMaxDuty": 95,
+    "pwm1freq": 25000,
+    "pwm1min": 15,
+    "pwm1max": 95,
     "waterMark": 3,
     "airConditionerStatus": 1,
     "deviceId": "ABC123...",
     ...
 }
 ```
+
+**参数说明**:
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `runTime` | int | 本次开机运行时间（秒），从 `initialBootTime` 开始计算 |
+| `totalRunTime` | int | 累计运行时间（秒），设备总运行时间 |
+| `sw1name` | str | 开关1名称（支持中文） |
+| `sw2name` | str | 开关2名称（支持中文） |
+| `waterMark` | int | 水位状态：1=空、2=正常、3=满 |
+| `airConditionerStatus` | int | 空调状态：0=关、1=开 |
 
 #### 5.2.2 设置模式 (mode=set)
 
@@ -536,6 +550,23 @@ defaulteSystemConfig = {
 | normal | 正常运行模式 | 连接WiFi，运行状态机，广播IP |
 | config | 配置模式 | 启动AP，等待WiFi配置，300秒超时重启 |
 
+### 6.3 参数分组配置
+
+参数按相关性智能分组，便于前端显示和管理：
+
+| 分组 | 参数 |
+|------|------|
+| 温度阈值 | fineHThreshold, fineLThreshold |
+| 喷雾参数 | sprayPeriod, minSparyTime, maxSparyTime |
+| PWM配置 | pwm1freq, pwm1min, pwm1max, pwm1default |
+| 补水参数 | minAddWaterInterval, waterFillTimeOut, waterDischargeTimeOut |
+| 开关配置 | sw1, sw2, sw1name, sw2name |
+| 网络配置 | wifiname, wifipwd, APName, APPwd, serverurl |
+
+**参数类型转换**: DBUtil仅支持字符串存储，读取时需根据实际需要转换为对应类型：
+- 数值型参数: `int(db.get("totalRunTime"))`
+- 布尔型参数: `bool(db.get("sw1"))`
+
 ---
 
 ## 7. 系统启动流程
@@ -575,8 +606,20 @@ while True:
     setLEDArray()       # LED闪烁指示
     saveData()          # 每3600次保存数据
     utime.sleep_ms(1000)
-    runCounter += 1
+    loopCounter += 1
 ```
+
+### 7.3 全局变量说明
+
+| 变量 | 类型 | 用途 | 说明 |
+|------|------|------|------|
+| `bootTime` | int | 累计运行时间计算 | 被 `sysTask()` 不断更新，用于计算 `totalRunTime` |
+| `initialBootTime` | int | 本次开机运行时间计算 | 初始启动时间，不会被更新，用于计算 `runTime` |
+| `totalRunTime` | int | 累计运行时间 | 设备总运行时间（秒），定期保存到数据库 |
+| `loopCounter` | int | 循环计数器 | 用于定时执行任务（GC、LED闪烁、数据保存） |
+| `whenGotoConfigMode` | int | 配置模式超时 | 记录进入配置模式的时间，超时300秒后重启 |
+| `gotIpLast` / `gotIpNow` | str | IP地址检测 | 检测IP变化，用于广播通知 |
+| `LEDArrayColor` | tuple | LED颜色 | 当前LED显示颜色 |
 
 ---
 
@@ -610,37 +653,64 @@ if '..' in fileName:
 - 喂狗周期: 5秒
 - 防止系统死锁
 
+### 9.4 中文参数支持
+
+**问题**: Microdot框架的 `urldecode_str` 函数无法正确解码UTF-8多字节字符，导致中文参数传递时出现乱码。
+
+**解决方案**:
+1. **前端**: 使用 `encodeURIComponent()` 对中文参数进行URL编码
+   ```javascript
+   encodeURIComponent("灯光") → "%E7%81%AF%E5%85%89"
+   ```
+
+2. **后端**: 修改 `lib/microdot.py` 中的 `urldecode_str` 和 `urldecode_bytes` 函数，先将所有 `%XX` 转换为字节值，构建完整的字节数组，然后统一用 `decode('utf-8')` 解码
+
+**支持中文的参数**:
+- `sw1name`: 开关1名称
+- `sw2name`: 开关2名称
+- `devicename`: 设备名称
+
 ---
 
 ## 10. 前端界面设计
 
-### 10.1 功能模块
+### 10.1 架构设计
 
-1. **设备控制区**
-   - 设备名称显示
-   - 运行时间显示
-   - 传感器数据实时显示
-   - 温度/湿度图表
+**模块化架构**:
+```
+index.html
+├── CONFIG模块      # 常量配置（选择器、API地址、单位等）
+├── UTILS模块       # 工具函数（格式化、JSON解析等）
+├── VIEW模块        # 视图层（工厂模式创建专用视图）
+├── CONTROLLER模块  # 控制器层（刷新控制器、事件控制器）
+└── App主模块       # 应用入口
+```
 
-2. **参数设置区**
-   - 温度阈值设置
-   - 喷雾参数设置
-   - PWM参数设置
-   - 补水间隔设置
+**设计模式**:
+- **工厂模式**: 视图创建通过工厂函数实现，降低耦合度
+- **关注点分离**: 视图层与控制器层分离，便于维护
 
-3. **开关控制区**
-   - S1/S2开关控制
+### 10.2 功能模块（Tabs标签页）
 
-4. **网络配置区**
-   - WiFi扫描
-   - WiFi连接
-   - 设备名称/密码设置
+| 标签页 | 功能 |
+|--------|------|
+| 设备状态 | 设备名称、运行时间、传感器实时数据、温度/湿度图表 |
+| 参数设置 | 温度阈值、喷雾参数、PWM参数、补水参数分组显示 |
+| 开关控制 | S1/S2开关控制及名称设置 |
+| 网络配置 | WiFi扫描、连接配置、设备名称/密码设置 |
 
-5. **系统操作区**
-   - 重置按钮
-   - 重启按钮
+### 10.3 响应式布局
 
-### 10.2 数据刷新机制
+| 屏幕宽度 | 显示列数 |
+|----------|----------|
+| < 600px | 1列（手机） |
+| 600px - 960px | 2列（平板） |
+| 960px - 1280px | 3列（桌面） |
+| >= 1280px | 4列（大屏） |
+
+**布局实现**: 使用CSS Grid配合媒体查询，参数分组显示在网格中。
+
+### 10.4 数据刷新机制
 - 定时器周期: 5秒
 - 自动刷新传感器数据
 - 图表数据缓存: 350条记录 (约30分钟)
@@ -708,7 +778,8 @@ if '..' in fileName:
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
-| 202606141506 | 2026-06-14 | 当前版本 |
+| 202606170000 | 2026-06-17 | 更新全局变量设计、前端架构、参数分组、中文支持 |
+| 202606141506 | 2026-06-14 | 初始版本 |
 
 ---
 
