@@ -328,12 +328,12 @@
                                                 <div class="text-sm font-semibold text-blue" id="id_maxSparyTime">----s</div>
                                             </div>
                                             <div class="grid-item">
-                                                <div class="text-gray text-xs mb-1">有水可用</div>
-                                                <div class="text-sm font-semibold text-green" id="id_waterAvailable">----</div>
+                                                <div class="text-gray text-xs mb-1">供水状态</div>
+                                                <div class="text-sm font-semibold" id="id_waterAvailable">----</div>
                                             </div>
                                             <div class="grid-item">
                                                 <div class="text-gray text-xs mb-1">翅片温度</div>
-                                                <div class="text-sm font-semibold text-red" id="id_fineTemp">----℃</div>
+                                                <div class="text-sm font-semibold" id="id_fineTemp">----℃</div>
                                             </div>
                                         </div>
                                         <div class="grid grid-3 mt-2">
@@ -396,16 +396,16 @@
                                         </div>
                                         <div class="grid grid-3 mt-2">
                                             <div class="grid-item">
+                                                <div class="text-gray text-xs mb-1">进水水温</div>
+                                                <div class="text-sm font-semibold text-blue" id="id_inWaterTemp">----℃</div>
+                                            </div>
+                                            <div class="grid-item">
                                                 <div class="text-gray text-xs mb-1">水箱TDS</div>
                                                 <div class="text-sm font-semibold text-purple" id="id_waterTankTDS">----ppm</div>
                                             </div>
                                             <div class="grid-item">
                                                 <div class="text-gray text-xs mb-1">水箱水温</div>
-                                                <div class="text-sm font-semibold text-blue" id="id_waterTemp">----℃</div>
-                                            </div>
-                                            <div class="grid-item">
-                                                <div class="text-gray text-xs mb-1">TDS阈值</div>
-                                                <div class="text-sm font-semibold text-orange" id="id_waterTDSThreshold">----ppm</div>
+                                                <div class="text-sm font-semibold text-blue" id="id_waterTankTemp">----℃</div>
                                             </div>
                                         </div>
                                     </div>
@@ -500,6 +500,10 @@
                             <label>水箱加水最小间隔 (s):</label>
                             <div class="input-group">
                                 <input type="text" id="min_add_water_interval" class="form-input" value="----" placeholder="水箱加水最短时间间隔,防止用水过多." />
+                            </div>
+                            <label>水箱TDS阈值 (ppm):</label>
+                            <div class="input-group">
+                                <input type="text" id="water_tds_threshold" class="form-input" value="----" placeholder="水箱TDS超过此值时排水." />
                             </div>
                         </div>
 
@@ -725,8 +729,9 @@
                 WATER_FILL_TIMEOUT: '#id_waterFillTimeOut',
                 WATER_DISCHARGE_TIMEOUT: '#id_waterDischargeTimeOut',
                 IN_WATER_TDS: '#id_inWaterTDS',
+                IN_WATER_TEMP: '#id_inWaterTemp',
                 WATER_TANK_TDS: '#id_waterTankTDS',
-                WATER_TEMP: '#id_waterTemp',
+                WATER_TANK_TEMP: '#id_waterTankTemp',
                 WATER_TDS_THRESHOLD: '#id_waterTDSThreshold',
 
                 SW1_NAME_DISPLAY: '#id_sw1_name',
@@ -757,6 +762,7 @@
                 MIN_SPRAY_TIME_INPUT: '#min_spary_time',
                 MAX_SPRAY_TIME_INPUT: '#max_spary_time',
                 MIN_ADD_WATER_INTERVAL_INPUT: '#min_add_water_interval',
+                WATER_TDS_THRESHOLD_INPUT: '#water_tds_threshold',
                 PWM_CHANNEL: '#pwm_channel',
                 PWM_FREQ: '#pwm_freq',
                 PWM_MIN_DUTY: '#pwm_min_duty',
@@ -952,8 +958,9 @@
                             waterFillTimeOut: rawData.waterFillTimeOut || 0,
                             waterDischargeTimeOut: rawData.waterDischargeTimeOut || 0,
                             inWaterTDS: rawData.inWaterTDS || invalid,
+                            inWaterTemp: rawData.inWaterTemp || invalid,
                             waterTankTDS: rawData.waterTankTDS || invalid,
-                            waterTemp: rawData.waterTemp || invalid,
+                            waterTankTemp: rawData.waterTankTemp || invalid,
                             waterTDSThreshold: rawData.waterTDSThreshold || 0
                         },
 
@@ -1122,8 +1129,9 @@
                 'spray.waterFillTimeOut': { selector: CONFIG.SELECTORS.WATER_FILL_TIMEOUT, unit: CONFIG.UNITS.runtime },
                 'spray.waterDischargeTimeOut': { selector: CONFIG.SELECTORS.WATER_DISCHARGE_TIMEOUT, unit: CONFIG.UNITS.runtime },
                 'spray.inWaterTDS': { selector: CONFIG.SELECTORS.IN_WATER_TDS, unit: CONFIG.UNITS.tds },
+                'spray.inWaterTemp': { selector: CONFIG.SELECTORS.IN_WATER_TEMP, unit: CONFIG.UNITS.temp },
                 'spray.waterTankTDS': { selector: CONFIG.SELECTORS.WATER_TANK_TDS, unit: CONFIG.UNITS.tds },
-                'spray.waterTemp': { selector: CONFIG.SELECTORS.WATER_TEMP, unit: CONFIG.UNITS.temp },
+                'spray.waterTankTemp': { selector: CONFIG.SELECTORS.WATER_TANK_TEMP, unit: CONFIG.UNITS.temp },
                 'spray.waterTDSThreshold': { selector: CONFIG.SELECTORS.WATER_TDS_THRESHOLD, unit: CONFIG.UNITS.tds }
             };
             view.update = function(deviceData) {
@@ -1139,6 +1147,20 @@
                     }
                     $(config.selector).text(formatted);
                 });
+
+                const waterAvailable = deviceData.get('spray.waterAvailable');
+                const waterAvailableEl = $(CONFIG.SELECTORS.WATER_AVAILABLE);
+                waterAvailableEl.text(waterAvailable);
+                waterAvailableEl.removeClass('text-green text-red');
+                waterAvailableEl.addClass(waterAvailable === '可用' ? 'text-green' : 'text-red');
+
+                const fineTemp = deviceData.get('spray.fineTemp');
+                const fineLThreshold = deviceData.get('spray.fineLThreshold');
+                const fineTempEl = $(CONFIG.SELECTORS.FINE_TEMP);
+                fineTempEl.removeClass('text-green text-red');
+                if (fineTemp !== '----' && fineLThreshold !== '----') {
+                    fineTempEl.addClass(parseFloat(fineTemp) > parseFloat(fineLThreshold) ? 'text-red' : 'text-green');
+                }
             };
             return view;
         }
@@ -1176,6 +1198,7 @@
                 $(CONFIG.SELECTORS.MIN_SPRAY_TIME_INPUT).val(settings.minSparyTime);
                 $(CONFIG.SELECTORS.MAX_SPRAY_TIME_INPUT).val(settings.maxSparyTime);
                 $(CONFIG.SELECTORS.MIN_ADD_WATER_INTERVAL_INPUT).val(settings.minAddWaterInterval);
+                $(CONFIG.SELECTORS.WATER_TDS_THRESHOLD_INPUT).val(deviceData.data.spray.waterTDSThreshold);
 
                 const channel = $(CONFIG.SELECTORS.PWM_CHANNEL).val();
                 const pwmData = deviceData.getPWMData(channel);
@@ -1487,7 +1510,7 @@
                     const pwm4default = pwm4.default !== undefined && pwm4.default !== '' ? pwm4.default : 0;
 
                     const url = UTILS.formatString(
-                        '{0}?mode=set&devicepwd={1}&fineHThreshold={2}&fineLThreshold={3}&pwm1freq={4}&pwm1min={5}&pwm1max={6}&pwm1default={7}&pwm2freq={8}&pwm2min={9}&pwm2max={10}&pwm2default={11}&pwm3freq={12}&pwm3min={13}&pwm3max={14}&pwm3default={15}&pwm4freq={16}&pwm4min={17}&pwm4max={18}&pwm4default={19}&sprayPeriod={20}&minSparyTime={21}&maxSparyTime={22}&minAddWaterInterval={23}&sw1name={24}&sw2name={25}&sw1={26}&sw2={27}',
+                        '{0}?mode=set&devicepwd={1}&fineHThreshold={2}&fineLThreshold={3}&pwm1freq={4}&pwm1min={5}&pwm1max={6}&pwm1default={7}&pwm2freq={8}&pwm2min={9}&pwm2max={10}&pwm2default={11}&pwm3freq={12}&pwm3min={13}&pwm3max={14}&pwm3default={15}&pwm4freq={16}&pwm4min={17}&pwm4max={18}&pwm4default={19}&sprayPeriod={20}&minSparyTime={21}&maxSparyTime={22}&minAddWaterInterval={23}&waterTDSThreshold={24}&sw1name={25}&sw2name={26}&sw1={27}&sw2={28}',
                         CONFIG.API.STATUS,
                         $(CONFIG.SELECTORS.DEVICEPWD).val(),
                         $(CONFIG.SELECTORS.THRESHOLD_H).val(),
@@ -1512,6 +1535,7 @@
                         $(CONFIG.SELECTORS.MIN_SPRAY_TIME_INPUT).val(),
                         $(CONFIG.SELECTORS.MAX_SPRAY_TIME_INPUT).val(),
                         $(CONFIG.SELECTORS.MIN_ADD_WATER_INTERVAL_INPUT).val(),
+                        $(CONFIG.SELECTORS.WATER_TDS_THRESHOLD_INPUT).val(),
                         encodeURIComponent($(CONFIG.SELECTORS.SWITCH_1_NAME_INPUT).val()),
                         encodeURIComponent($(CONFIG.SELECTORS.SWITCH_2_NAME_INPUT).val()),
                         $(CONFIG.SELECTORS.SWITCH_1).is(':checked') ? 'true' : 'false',

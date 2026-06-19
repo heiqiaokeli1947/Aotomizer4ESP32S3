@@ -68,7 +68,7 @@ defaulteSystemConfig = {
     "modbusSlaveAddr": 6,
     "modbusBadud": 38400,
     "deviceId": "",
-    "waterTDSThreshold": 10,
+    "waterTDSThreshold": 15,
     "waterDischargeTimeOut": 60,
     "waterFillTimeOut": 850,
     "minAddWaterInterval": 2400,
@@ -103,11 +103,11 @@ def createDefaultConfig():
     db.delete(["systemConfig"])
     db.save({"systemConfig": ujson.dumps(defaulteSystemConfig)})
 
-
+loopCounter = 0  # 循环计数器，用于定时判断
 bootTime = utime.time()  # 记录启动时间，用于计算本次开机运行时间
 initialBootTime = bootTime  # 记录初始启动时间（不会被更新）
-totalRunTime = 0
 
+totalRunTime = 0
 if db.get("totalRunTime") is not None:
     totalRunTime = int(db.get("totalRunTime"))
 else:
@@ -383,6 +383,10 @@ def handler(request):
             systemConfig["maxSparyTime"] = int(request.args["maxSparyTime"])
         if "sprayPeriod" in request.args:
             systemConfig["sprayPeriod"] = int(request.args["sprayPeriod"])
+        if "waterTDSThreshold" in request.args:
+            val = request.args["waterTDSThreshold"]
+            if val is not None and val != "" and val != "----":
+                systemConfig["waterTDSThreshold"] = int(val)
 
         # 设备参数
         if "deviceusername" in request.args:
@@ -552,7 +556,7 @@ def sysTask():
     bootTime = currentTime
 
 
-loopCounter = 0  # 循环计数器，用于定时判断
+
 while True:
     sysTask()
 

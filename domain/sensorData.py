@@ -12,8 +12,9 @@ class SensorData():
         self.__tempLM75_2 = -9999
         self.__tempLM75_3 = -9999
         self.__inWaterTDS = -9999
+        self.__inWaterTemp = -9999
         self.__waterTankTDS = -9999
-        self.__waterTemp = -9999
+        self.__waterTankTemp = -9999
 
 
     @property
@@ -89,6 +90,14 @@ class SensorData():
         self.__inWaterTDS = value
 
     @property
+    def inWaterTemp(self):
+        return self.__inWaterTemp
+
+    @inWaterTemp.setter
+    def inWaterTemp(self, value):
+        self.__inWaterTemp = value
+
+    @property
     def waterTankTDS(self):
         return self.__waterTankTDS
 
@@ -97,16 +106,17 @@ class SensorData():
         self.__waterTankTDS = value
 
     @property
-    def waterTemp(self):
-        return self.__waterTemp
+    def waterTankTemp(self):
+        return self.__waterTankTemp
 
-    @waterTemp.setter
-    def waterTemp(self, value):
-        self.__waterTemp = value
+    @waterTankTemp.setter
+    def waterTankTemp(self, value):
+        self.__waterTankTemp = value
 
     @property
     def __dict__(self):
         return {"temp": self.__temp, "humi": self.__humi, "presure": self.__presure, "altitude": self.__altitude,
                 "luminance": self.__luminance, "pm25": self.__pm25, "tempBMP280": self.__tempBMP280,
                 "tempLM75_1": self.__tempLM75_1, "tempLM75_2": self.__tempLM75_2, "tempLM75_3": self.__tempLM75_3,
-                "inWaterTDS": self.__inWaterTDS, "waterTankTDS": self.__waterTankTDS, "waterTemp": self.__waterTemp}
+                "inWaterTDS": self.__inWaterTDS, "inWaterTemp": self.__inWaterTemp,
+                "waterTankTDS": self.__waterTankTDS, "waterTankTemp": self.__waterTankTemp}

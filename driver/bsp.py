@@ -2,17 +2,14 @@ from machine import Pin, PWM, I2C, SoftI2C, Timer
 from micropython import const
 import domain.sensorData as sensorData
 import neopixel
-
 import driver.bmp280 as bmp280
 import driver.hdc1080 as hdc1080
-
+from driver.tds import TDSModule as tds
 import driver.enum as enum
-
 import domain.AACOps as AAC
 
 _WATER_PUMP_FREQ = const(1000)
 _WATER_PUMP_DEFAULT_PERCENT = const(0)
-
 
 class BSP:
     # 单例实例
@@ -76,6 +73,11 @@ class BSP:
         print("init hdc1080...")
         self.__hdc1080 = hdc1080.HDC1080(self.softI2C)
 
+        print("init tds...")
+        TDS_TX_PIN = 18  # ESP32 TX -> 模块RX
+        TDS_RX_PIN = 17  # ESP32 RX -> 模块TX
+        self.tds_sensor = tds(tx_pin=TDS_TX_PIN, rx_pin=TDS_RX_PIN, uart_id=1)
+
         self.__sensorReadTimer = Timer(1)
         self.__sensorReadTimer.init(mode=Timer.PERIODIC, period=1000, callback=self.timerHandler)
 
@@ -84,6 +86,8 @@ class BSP:
         
         # 标记已初始化
         self._initialized = True
+
+        self.runCounter = 0
 
     def setConfig(self, config):
         self.config = config
@@ -113,10 +117,36 @@ class BSP:
         self.__sensorData.wetBulbTemp = self.aac.ts(self.__sensorData.temp, self.__sensorData.humi/100.0, 0.1)
         #print("hdc1080:temp={},humi={},wetBulbTemp={}".format(self.__sensorData.temp, self.__sensorData.humi,self.__sensorData.wetBulbTemp))
 
+    def tdsTimerHandler(self, timer):
+        data = self.tds_sensor.get_channel(1)
+ 
+        if data is not None:
+            print(f"通道1(进水):电导率：{data['conductivity_uscm']:.1f} μS/cm, 水温：{data['temp_c']:.1f} ℃, TDS值：{data['tds_ppm']:.1f} ppm")
+            self.__sensorData.inWaterTDS = data['tds_ppm']
+            self.__sensorData.inWaterTemp = data['temp_c']
+        else:
+            self.__sensorData.inWaterTDS = -9999
+            self.__sensorData.inWaterTemp = -9999
+            print("通道1(进水)读取失败，请检查接线/校准")
+
+        data = self.tds_sensor.get_channel(2)
+        if data is not None:
+            print(f"通道2(水箱):电导率：{data['conductivity_uscm']:.1f} μS/cm, 水温：{data['temp_c']:.1f} ℃, TDS值：{data['tds_ppm']:.1f} ppm")
+            self.__sensorData.waterTankTDS = data['tds_ppm']
+            self.__sensorData.waterTankTemp = data['temp_c']
+        else:
+            self.__sensorData.waterTankTDS = -9999
+            self.__sensorData.waterTankTemp = -9999
+            print("通道2(水箱)读取失败，请检查接线/校准")
+
+
     def timerHandler(self, timer):
         #print("read sensor data...")
+        if self.runCounter % 5 == 0:
+            self.tdsTimerHandler(timer)
         self.bmp280TimerHandler(timer)
         self.hdc1080TimerHandler(timer)
+        self.runCounter += 1
 
     def setFan1Pwm(self, percent):
         if percent > 100:
@@ -220,10 +250,10 @@ class BSP:
         return self.__fanSpeed
 
     def getWaterAvailableStatus(self):
-        if self.__sensorData.__waterTankTDS < int(self.config["waterTDSThreshold"]):
-            return True
-        else:
+        # TDS无效值检查
+        if self.__sensorData.waterTankTDS == -9999:
             return False
+        return self.__sensorData.waterTankTDS < int(self.config["waterTDSThreshold"])
     
     @classmethod
     def getInstance(cls):

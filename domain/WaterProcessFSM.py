@@ -23,8 +23,9 @@ class FSM:
         self.waterFillStartTime = 0
         # 约365s从刚下到低水位加到高水位
         self.waterFillTimeOut = int(self.config["waterFillTimeOut"])
-        self.waterDischargeTimeOut = int(self.config["waterDischargeTimeOut"]) #55s=2L
+        self.waterDischargeTimeOut = int(self.config["waterDischargeTimeOut"])
         self.minAddWaterInterval = int(self.config["minAddWaterInterval"])
+        self.waterTDSThreshold = int(self.config["waterTDSThreshold"])
         
         self.totalAddWaterCount = 0
         if db.get("totalAddWaterCount") is not None:
@@ -36,8 +37,9 @@ class FSM:
 
         self.airConditionerStatus = 0
         self.inWaterTDS = 0
+        self.inWaterTemp = 0
         self.waterTankTDS = 0
-        self.waterTemp = 0
+        self.waterTankTemp = 0
         self.waterAvailable = False
         
 
@@ -54,9 +56,11 @@ class FSM:
         return {"totalAddWaterCount":self.totalAddWaterCount,
                 "waterMark":self.waterMark,
                 "inWaterTDS":self.inWaterTDS,
-                "waterTankTDS":self.waterTankTDS,
+                "inWaterTemp":self.inWaterTemp,
+                "waterTankTDS":self.waterTankTDS,   
                 "waterAvailable":self.waterAvailable,
-                "waterTemp":self.waterTemp}
+                "waterTankTemp":self.waterTankTemp,
+                "waterTDSThreshold":self.waterTDSThreshold}
 
     def saveData(self):
         db.save({"totalAddWaterCount":str(self.totalAddWaterCount)})
@@ -64,7 +68,8 @@ class FSM:
     def reloadConfig(self):
         self.minAddWaterInterval = int(self.config["minAddWaterInterval"])
         self.waterFillTimeOut = int(self.config["waterFillTimeOut"])
-        self.waterDischargeTimeOut = int(self.config["waterDischargeTimeOut"]) #55s=2L
+        self.waterDischargeTimeOut = int(self.config["waterDischargeTimeOut"])
+        self.waterTDSThreshold = int(self.config["waterTDSThreshold"])
 
 
     def close(self):
@@ -130,8 +135,9 @@ class FSM:
 
     def getWaterParam(self):
         self.inWaterTDS = self.bspInstance.getSensorData().inWaterTDS
+        self.inWaterTemp = self.bspInstance.getSensorData().inWaterTemp
         self.waterTankTDS = self.bspInstance.getSensorData().waterTankTDS
-        self.waterTemp = self.bspInstance.getSensorData().waterTemp
+        self.waterTankTemp = self.bspInstance.getSensorData().waterTankTemp
         self.waterAvailable = self.bspInstance.getWaterAvailableStatus()
         self.waterMark = self.bspInstance.getWaterTankStatus()
 
