@@ -7,11 +7,19 @@ class TDSModule:
     SEND_FRAME_LEN = 0x07
     RECIVE_FRAME_LEN = 0x0B
     CMD_READ_DATA = 0x05
+    CMD_RESP_DATA = 0x85
     CMD_SLEEP = 0x06
+
+    _STATE_IDLE = 0
+    _STATE_WAITING = 1
+    _POLL_TIMEOUT_MS = 3000
 
     def __init__(self, tx_pin, rx_pin, uart_id=1, baudrate=9600):
         self.uart = UART(uart_id, baudrate=baudrate, tx=tx_pin, rx=rx_pin, timeout=500)
         self.rx_buf = bytearray()
+        self._state = self._STATE_IDLE
+        self._pending_channel = 0
+        self._cmd_sent_at = 0
 
     def calc_checksum(self, data):
         cs = 0
@@ -32,28 +40,90 @@ class TDSModule:
         ])
         cs = self.calc_checksum(frame)
         frame.append(cs)
-        #print("发送数据:", frame.hex())
         self.uart.write(frame)
+
+    def start_read(self, channel):
+        if self._state != self._STATE_IDLE:
+            return False
+        self.rx_buf = bytearray()
+        self.send_cmd(channel)
+        self._pending_channel = channel
+        self._cmd_sent_at = time.ticks_ms()
+        self._state = self._STATE_WAITING
+        return True
+
+    def poll(self):
+        if self._state != self._STATE_WAITING:
+            return None
+
+        if time.ticks_diff(time.ticks_ms(), self._cmd_sent_at) > self._POLL_TIMEOUT_MS:
+            self._state = self._STATE_IDLE
+            return None
+
+        if self.uart.any():
+            data = self.uart.read()
+            if data:
+                self.rx_buf.extend(data)
+            if len(self.rx_buf) >= self.RECIVE_FRAME_LEN:
+                frame = self._find_valid_frame()
+                if frame:
+                    self._state = self._STATE_IDLE
+                    return self._parse_frame(frame)
+                else:
+                    self.rx_buf = bytearray()
+        return None
+
+    def _find_valid_frame(self):
+        idx = self.rx_buf.find(bytes([self.FRAME_HEAD]))
+        if idx == -1 or idx + self.RECIVE_FRAME_LEN > len(self.rx_buf):
+            return None
+        frame = self.rx_buf[idx:idx + self.RECIVE_FRAME_LEN]
+        recv_cs = frame[-1]
+        calc_cs = self.calc_checksum(frame[:-1])
+        if recv_cs != calc_cs:
+            return None
+        return frame
+
+    def _parse_frame(self, frame):
+        resp_cmd = frame[2]
+        if resp_cmd != self.CMD_RESP_DATA:
+            return None
+        recv_ch = frame[3]
+        channel = self._pending_channel
+        target_ch = 0x01 if channel == 1 else 0x02
+        if recv_ch != target_ch:
+            return None
+        cond_raw = (frame[4] << 8) | frame[5]
+        cond = cond_raw / 10.0
+        temp_raw = (frame[6] << 8) | frame[7]
+        if temp_raw > 32767:
+            temp_raw = temp_raw - 65536
+        temp = temp_raw / 10.0
+        tds = cond / 2.0
+        return {
+            "conductivity_uscm": cond,
+            "temp_c": temp,
+            "tds_ppm": tds
+        }
 
     def read_response(self, timeout_ms=100):
         self.rx_buf = bytearray()
         start = time.ticks_ms()
         while time.ticks_diff(time.ticks_ms(), start) < timeout_ms:
             if self.uart.any():
-                self.rx_buf.extend(self.uart.read())
+                data = self.uart.read()
+                if data:
+                    self.rx_buf.extend(data)
                 if len(self.rx_buf) >= self.RECIVE_FRAME_LEN:
-                    #print("接收到的数据:", self.rx_buf.hex())
                     idx = self.rx_buf.find(bytes([self.FRAME_HEAD]))
                     if idx != -1 and idx + self.RECIVE_FRAME_LEN <= len(self.rx_buf):
-                        frame = self.rx_buf[idx:idx+self.RECIVE_FRAME_LEN]
-                        #print("接收到的frame:", frame.hex())
+                        frame = self.rx_buf[idx:idx + self.RECIVE_FRAME_LEN]
                         recv_cs = frame[-1]
                         calc_cs = self.calc_checksum(frame[:-1])
                         if recv_cs == calc_cs:
-                            #print("校验和校验通过，返回数据:", frame.hex())
                             return frame
                         else:
-                            self.rx_buf = self.rx_buf[idx+self.RECIVE_FRAME_LEN:]
+                            self.rx_buf = self.rx_buf[idx + self.RECIVE_FRAME_LEN:]
         return None
 
     def get_channel_data(self, channel):
@@ -62,23 +132,12 @@ class TDSModule:
         frame = self.read_response()
         if frame is None:
             return None
-        resp_cmd = frame[2]
-        if resp_cmd != 0x85:
-            return None
-        recv_ch = frame[3]
-        target_ch = 0x01 if channel == 1 else 0x02
-        if recv_ch != target_ch:
-            return None
-        # 电导率: 高字节在前，低字节在后，单位 0.1 μS/cm
         cond_raw = (frame[4] << 8) | frame[5]
         cond = cond_raw / 10.0
-        # 温度: 高字节在前，低字节在后，单位 0.1 ℃，有符号数
         temp_raw = (frame[6] << 8) | frame[7]
-        # 处理有符号温度值
         if temp_raw > 32767:
             temp_raw = temp_raw - 65536
         temp = temp_raw / 10.0
-        # TDS 计算: 电导率 / 2
         tds = cond / 2.0
         return {
             "conductivity_uscm": cond,
@@ -92,7 +151,7 @@ class TDSModule:
         ch2 = self.get_channel_data(2)
         return {"ch1": ch1, "ch2": ch2}
 
-    def get_channel(self,channel):
+    def get_channel(self, channel):
         return self.get_channel_data(channel)
 
     def sleep_module(self):

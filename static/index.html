@@ -923,6 +923,11 @@
 
                 parse: function(rawData) {
                     const invalid = this.INVALID_VALUE;
+                    var nv = function(v, def) {
+                        if (v === undefined || v === null) return def;
+                        if (typeof v === 'number' && v === -9999) return def;
+                        return v;
+                    };
                     return {
                         deviceName: rawData.devicename || '---',
                         wifiName: rawData.wifiname || '---',
@@ -930,50 +935,50 @@
                         ver: rawData.ver || '---',
                         deviceId: rawData.deviceId || '---',
 
-                        runTime: rawData.runTime || 0,
-                        totalRunTime: rawData.totalRunTime || 0,
+                        runTime: rawData.runTime ?? 0,
+                        totalRunTime: rawData.totalRunTime ?? 0,
 
                         spray: {
                             airConditionerStatus: (rawData.airConditionerStatus === 0 || rawData.airConditionerStatus === 1)
                                 ? (rawData.airConditionerStatus === 1 ? '开' : '关')
-                                : (rawData.airConditionerStatus || '---'),
-                            totalSprayCount: rawData.totalSprayCount || 0,
-                            totalAddWaterCount: rawData.totalAddWaterCount || 0,
-                            sprayPeriod: rawData.sprayPeriod || 0,
-                            minSparyTime: rawData.minSparyTime || 0,
-                            maxSparyTime: rawData.maxSparyTime || 0,
+                                : (rawData.airConditionerStatus ?? '---'),
+                            totalSprayCount: rawData.totalSprayCount ?? 0,
+                            totalAddWaterCount: rawData.totalAddWaterCount ?? 0,
+                            sprayPeriod: rawData.sprayPeriod ?? 0,
+                            minSparyTime: rawData.minSparyTime ?? 0,
+                            maxSparyTime: rawData.maxSparyTime ?? 0,
                             waterAvailable: rawData.waterAvailable ? '可用' : '不可用',
-                            fineTemp: rawData.fineTemp || invalid,
-                            fineTempThreshold: rawData.fineTempThreshold || invalid,
-                            fineHThreshold: rawData.fineHThreshold || invalid,
-                            fineLThreshold: rawData.fineLThreshold || invalid,
+                            fineTemp: nv(rawData.fineTemp, invalid),
+                            fineTempThreshold: nv(rawData.fineTempThreshold, invalid),
+                            fineHThreshold: nv(rawData.fineHThreshold, invalid),
+                            fineLThreshold: nv(rawData.fineLThreshold, invalid),
                             waterMark: (function() {
                                 var wm = rawData.waterMark;
                                 if (wm === 1) return '空';
                                 if (wm === 2) return '正常';
                                 if (wm === 3) return '满';
-                                return wm || '---';
+                                return wm ?? '---';
                             })(),
-                            minAddWaterInterval: rawData.minAddWaterInterval || 0,
-                            waterFillTimeOut: rawData.waterFillTimeOut || 0,
-                            waterDischargeTimeOut: rawData.waterDischargeTimeOut || 0,
-                            inWaterTDS: rawData.inWaterTDS || invalid,
-                            inWaterTemp: rawData.inWaterTemp || invalid,
-                            waterTankTDS: rawData.waterTankTDS || invalid,
-                            waterTankTemp: rawData.waterTankTemp || invalid,
-                            waterTDSThreshold: rawData.waterTDSThreshold || 0
+                            minAddWaterInterval: rawData.minAddWaterInterval ?? 0,
+                            waterFillTimeOut: rawData.waterFillTimeOut ?? 0,
+                            waterDischargeTimeOut: rawData.waterDischargeTimeOut ?? 0,
+                            inWaterTDS: nv(rawData.inWaterTDS, invalid),
+                            inWaterTemp: nv(rawData.inWaterTemp, invalid),
+                            waterTankTDS: nv(rawData.waterTankTDS, invalid),
+                            waterTankTemp: nv(rawData.waterTankTemp, invalid),
+                            waterTDSThreshold: rawData.waterTDSThreshold ?? 0
                         },
 
                         sensors: {
-                            temp: rawData.temp || invalid,
-                            wetBulbTemp: rawData.wetBulbTemp || invalid,
-                            humi: rawData.humi || invalid,
-                            presure: rawData.presure || invalid,
-                            luminance: rawData.luminance || invalid,
-                            pm25: rawData.pm25 || invalid,
-                            longitude: rawData.longitude || '---',
-                            latitude: rawData.latitude || '---',
-                            altitude: rawData.altitude || invalid
+                            temp: nv(rawData.temp, invalid),
+                            wetBulbTemp: nv(rawData.wetBulbTemp, invalid),
+                            humi: nv(rawData.humi, invalid),
+                            presure: nv(rawData.presure, invalid),
+                            luminance: nv(rawData.luminance, invalid),
+                            pm25: nv(rawData.pm25, invalid),
+                            longitude: rawData.longitude ?? '---',
+                            latitude: rawData.latitude ?? '---',
+                            altitude: nv(rawData.altitude, invalid)
                         },
 
                         switches: {
@@ -984,16 +989,16 @@
                         },
 
                         settings: {
-                            fineHThreshold: rawData.fineHThreshold || invalid,
-                            fineLThreshold: rawData.fineLThreshold || invalid,
-                            sprayPeriod: rawData.sprayPeriod || 0,
-                            minSparyTime: rawData.minSparyTime || 0,
-                            maxSparyTime: rawData.maxSparyTime || 0,
-                            minAddWaterInterval: rawData.minAddWaterInterval || 0,
-                            pwmFreq: rawData.pwm1freq || 0,
-                            pwmMinDuty: rawData.pwm1min || 0,
-                            pwmMaxDuty: rawData.pwm1max || 0,
-                            pwmDefaultDuty: rawData.pwm1default || 0
+                            fineHThreshold: nv(rawData.fineHThreshold, invalid),
+                            fineLThreshold: nv(rawData.fineLThreshold, invalid),
+                            sprayPeriod: rawData.sprayPeriod ?? 0,
+                            minSparyTime: rawData.minSparyTime ?? 0,
+                            maxSparyTime: rawData.maxSparyTime ?? 0,
+                            minAddWaterInterval: rawData.minAddWaterInterval ?? 0,
+                            pwmFreq: rawData.pwm1freq ?? 0,
+                            pwmMinDuty: rawData.pwm1min ?? 0,
+                            pwmMaxDuty: rawData.pwm1max ?? 0,
+                            pwmDefaultDuty: rawData.pwm1default ?? 0
                         },
 
                         network: {
@@ -1012,28 +1017,28 @@
                 parsePWMData: function(rawData) {
                     return {
                         1: {
-                            freq: rawData.pwm1freq || 0,
-                            min: rawData.pwm1min || 0,
-                            max: rawData.pwm1max || 0,
-                            default: rawData.pwm1default || 0
+                            freq: rawData.pwm1freq ?? 0,
+                            min: rawData.pwm1min ?? 0,
+                            max: rawData.pwm1max ?? 0,
+                            default: rawData.pwm1default ?? 0
                         },
                         2: {
-                            freq: rawData.pwm2freq || 0,
-                            min: rawData.pwm2min || 0,
-                            max: rawData.pwm2max || 0,
-                            default: rawData.pwm2default || 0
+                            freq: rawData.pwm2freq ?? 0,
+                            min: rawData.pwm2min ?? 0,
+                            max: rawData.pwm2max ?? 0,
+                            default: rawData.pwm2default ?? 0
                         },
                         3: {
-                            freq: rawData.pwm3freq || 0,
-                            min: rawData.pwm3min || 0,
-                            max: rawData.pwm3max || 0,
-                            default: rawData.pwm3default || 0
+                            freq: rawData.pwm3freq ?? 0,
+                            min: rawData.pwm3min ?? 0,
+                            max: rawData.pwm3max ?? 0,
+                            default: rawData.pwm3default ?? 0
                         },
                         4: {
-                            freq: rawData.pwm4freq || 0,
-                            min: rawData.pwm4min || 0,
-                            max: rawData.pwm4max || 0,
-                            default: rawData.pwm4default || 0
+                            freq: rawData.pwm4freq ?? 0,
+                            min: rawData.pwm4min ?? 0,
+                            max: rawData.pwm4max ?? 0,
+                            default: rawData.pwm4default ?? 0
                         }
                     };
                 },

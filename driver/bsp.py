@@ -88,6 +88,12 @@ class BSP:
         self._initialized = True
 
         self.runCounter = 0
+        self._tds_state = 0
+        self._tds_channel = 0
+        self._tds_inWaterTDS = -9999.0
+        self._tds_inWaterTemp = -9999.0
+        self._tds_waterTankTDS = -9999.0
+        self._tds_waterTankTemp = -9999.0
 
     def setConfig(self, config):
         self.config = config
@@ -114,36 +120,65 @@ class BSP:
     def hdc1080TimerHandler(self, timer):
         self.__sensorData.temp = self.__hdc1080.temperature
         self.__sensorData.humi = self.__hdc1080.humidity
-        self.__sensorData.wetBulbTemp = self.aac.ts(self.__sensorData.temp, self.__sensorData.humi/100.0, 0.1)
-        #print("hdc1080:temp={},humi={},wetBulbTemp={}".format(self.__sensorData.temp, self.__sensorData.humi,self.__sensorData.wetBulbTemp))
+        try:
+            self.__sensorData.wetBulbTemp = self.aac.ts(self.__sensorData.temp, self.__sensorData.humi/100.0, 0.1)
+        except Exception:
+            self.__sensorData.wetBulbTemp = -9999
 
-    def tdsTimerHandler(self, timer):
-        data = self.tds_sensor.get_channel(1)
- 
-        if data is not None:
-            print(f"通道1(进水):电导率：{data['conductivity_uscm']:.1f} μS/cm, 水温：{data['temp_c']:.1f} ℃, TDS值：{data['tds_ppm']:.1f} ppm")
-            self.__sensorData.inWaterTDS = data['tds_ppm']
-            self.__sensorData.inWaterTemp = data['temp_c']
-        else:
-            self.__sensorData.inWaterTDS = -9999
-            self.__sensorData.inWaterTemp = -9999
-            print("通道1(进水)读取失败，请检查接线/校准")
+    def _tdsTick(self):
+        tds = self.tds_sensor
 
-        data = self.tds_sensor.get_channel(2)
-        if data is not None:
-            print(f"通道2(水箱):电导率：{data['conductivity_uscm']:.1f} μS/cm, 水温：{data['temp_c']:.1f} ℃, TDS值：{data['tds_ppm']:.1f} ppm")
-            self.__sensorData.waterTankTDS = data['tds_ppm']
-            self.__sensorData.waterTankTemp = data['temp_c']
-        else:
-            self.__sensorData.waterTankTDS = -9999
-            self.__sensorData.waterTankTemp = -9999
-            print("通道2(水箱)读取失败，请检查接线/校准")
+        if self._tds_state == 0:
+            if self.runCounter % 5 == 0:
+                if tds.start_read(1):
+                    self._tds_state = 1
+                    self._tds_channel = 1
+        elif self._tds_state == 1:
+            result = tds.poll()
+            if result is not None:
+                self._tds_inWaterTDS = result['tds_ppm']
+                self._tds_inWaterTemp = result['temp_c']
+                if tds.start_read(2):
+                    self._tds_state = 2
+                    self._tds_channel = 2
+                else:
+                    self._tds_state = 3
+            elif tds._state == tds._STATE_IDLE:
+                self._tds_inWaterTDS = -9999.0
+                self._tds_inWaterTemp = -9999.0
+                self._tds_state = 3
+        elif self._tds_state == 2:
+            result = tds.poll()
+            if result is not None:
+                self._tds_waterTankTDS = result['tds_ppm']
+                self._tds_waterTankTemp = result['temp_c']
+                self._applyTdsResult()
+                self._tds_state = 0
+            elif tds._state == tds._STATE_IDLE:
+                self._tds_waterTankTDS = -9999.0
+                self._tds_waterTankTemp = -9999.0
+                self._applyTdsResult()
+                self._tds_state = 0
+        elif self._tds_state == 3:
+            if tds.start_read(2):
+                self._tds_state = 2
+                self._tds_channel = 2
+            else:
+                self._tds_waterTankTDS = -9999.0
+                self._tds_waterTankTemp = -9999.0
+                self._applyTdsResult()
+                self._tds_state = 0
 
+    def _applyTdsResult(self):
+        print(f"通道1(进水):水温：{self._tds_inWaterTemp:.1f} ℃, TDS：{self._tds_inWaterTDS:.1f} ppm")
+        print(f"通道2(水箱):水温：{self._tds_waterTankTemp:.1f} ℃, TDS：{self._tds_waterTankTDS:.1f} ppm")
+        self.__sensorData.inWaterTDS = self._tds_inWaterTDS
+        self.__sensorData.inWaterTemp = self._tds_inWaterTemp
+        self.__sensorData.waterTankTDS = self._tds_waterTankTDS
+        self.__sensorData.waterTankTemp = self._tds_waterTankTemp
 
     def timerHandler(self, timer):
-        #print("read sensor data...")
-        if self.runCounter % 5 == 0:
-            self.tdsTimerHandler(timer)
+        self._tdsTick()
         self.bmp280TimerHandler(timer)
         self.hdc1080TimerHandler(timer)
         self.runCounter += 1
@@ -162,12 +197,12 @@ class BSP:
         if percent == 0:
             duty = 0
         else:
-            base = (int(self.config["pwm1min"])/100)*int(self.config["pwm1freq"])
-            full = (int(self.config["pwm1max"]) - int(self.config["pwm1min"]))/100*int(self.config["pwm1freq"])
-            duty = 1023*(full * (percent / 100.0) + base) /int(self.config["pwm1freq"])
+            base = (int(self.config["pwm3min"])/100)*int(self.config["pwm3freq"])
+            full = (int(self.config["pwm3max"]) - int(self.config["pwm3min"]))/100*int(self.config["pwm3freq"])
+            duty = 1023*(full * (percent / 100.0) + base) /int(self.config["pwm3freq"])
             print("base:{},full:{},duty:{}".format(base,full,int(duty)))
-            if duty > int(self.config["pwm1freq"]):
-                duty = int(self.config["pwm1freq"])
+            if duty > int(self.config["pwm3freq"]):
+                duty = int(self.config["pwm3freq"])
         #第1组用于直接控制mos，给风扇供应电源
         if duty == 0:
             self.__fan1PwmPin.duty(0)

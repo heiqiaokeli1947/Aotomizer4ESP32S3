@@ -62,6 +62,7 @@ def save(kv):
     openDB()
     for k,v in kv.items():
         db[k] = v
+    db.flush()
     closeDB()
 
 def get(k):
@@ -85,16 +86,52 @@ def multiGet(keys):
     closeDB()
     return res
 
-def getAll():
-    global db
+def _to_str(val):
+    if isinstance(val, bytes):
+        return val.decode("utf-8")
+    return val
 
-    print("---start query.")
+def getAll(verbose=False):
+    global db
     openDB()
+    res = {}
     for key in db:
-        print("key:{},value:{}".format(key,db[key]))
+        k = _to_str(key)
+        v = _to_str(db[key])
+        res[k] = v
+        if verbose:
+            print("key:{},value:{}".format(k, v))
+    closeDB()
+    return res
+
+def set(k, v):
+    global db
+    openDB()
+    db[k] = v
+    db.flush()
     closeDB()
 
+def delete(k):
+    global db
+    openDB()
+    if k in db:
+        del db[k]
+        db.flush()
+    closeDB()
 
+def count():
+    global db
+    openDB()
+    n = sum(1 for _ in db)
+    closeDB()
+    return n
+
+def contains(k):
+    global db
+    openDB()
+    found = k in db
+    closeDB()
+    return found
 
 
 

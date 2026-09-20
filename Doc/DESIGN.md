@@ -1,943 +1,862 @@
-# Aotomizer4ESP32S3 系统设计文档
+# 雾化控制器设计文档 (DESIGN.md)
 
 ## 1. 项目概述
 
-### 1.1 项目名称
-Aotomizer4ESP32S3 - 空调外机智能喷雾降温控制系统
+### 1.1 项目定位
+基于 **ESP32-S3** 的智能雾化/降温控制器，运行 **MicroPython** 固件。集成多路传感器（温湿度、气压/海拔、双通道水质）、多路执行器（电磁阀、水泵、风扇），通过 WiFi 提供 Web 配置界面与实时监控。
 
-### 1.2 项目目标
-基于 ESP32-S3 微控制器，实现空调外机散热器翅片的智能喷雾降温控制，通过监测温度自动触发喷雾降温，延长空调使用寿命、提高制冷效率。
+### 1.2 核心特性
+| 特性 | 说明 |
+|------|------|
+| 自动雾化 FSM | 根据翅片温度/环境湿度智能启停喷雾 |
+| 水循环 FSM | 自动检测水箱水位、控制进水/排水 |
+| 双通道 TDS | 进水 + 水箱水质实时监测 |
+| Web 管理界面 | 单页应用，参数设置/实时监控/网络配置 |
+| WiFi 双模式 | AP 热点 + STA 连接 |
+| 数据持久化 | BTree 数据库保存配置和统计数据 |
+| 状态指示灯 | WS2812 RGB LED 显示系统状态 |
+| 看门狗保护 | WDT 防止系统卡死 |
 
 ### 1.3 技术栈
-- **硬件平台**: ESP32-S3 (支持 SPIRAM_OCT)
-- **固件版本**: ESP32_GENERIC_S3-SPIRAM_OCT-20250415-v1.25.0.bin
-- **开发语言**: MicroPython
-- **Web框架**: Microdot
-- **前端框架**: Spectre CSS + jQuery + Chart.js
-
-### 1.4 软件版本
-当前版本: `202606240000`
+| 类别 | 技术 |
+|------|------|
+| MCU | ESP32-S3-WROOM-1 |
+| 固件 | MicroPython 1.25 |
+| Web 框架 | Microdot |
+| 数据库 | ubtree (BTree) |
+| 前端 | 原生 JavaScript + jQuery + Spectre CSS |
+| 传感器协议 | I²C (BMP280, HDC1080) + UART (TDS) |
 
 ---
 
-## 2. 系统架构
-
-### 2.1 整体架构图
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         应用层 (Application)                      │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐  │
-│  │   Web Server    │  │  状态机管理     │  │  WiFi管理       │  │
-│  │  (Microdot)     │  │ (FSM Manager)   │  │  (WiFi Module)  │  │
-│  └─────────────────┘  └─────────────────┘  └─────────────────┘  │
-├─────────────────────────────────────────────────────────────────┤
-│                         业务逻辑层 (Domain)                       │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐  │
-│  │ AotomizerFSM    │  │ WaterProcessFSM │  │   DBUtils       │  │
-│  │ (喷雾状态机)     │  │ (水处理状态机)   │  │  (数据存储)     │  │
-│  └─────────────────┘  └─────────────────┘  └─────────────────┘  │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐  │
-│  │   SensorData    │  │    AACOps       │  │   fileUtils     │  │
-│  │  (传感器数据)    │  │  (湿球温度计算)  │  │  (文件工具)     │  │
-│  └─────────────────┘  └─────────────────┘  └─────────────────┘  │
-├─────────────────────────────────────────────────────────────────┤
-│                         硬件驱动层 (Driver)                       │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐  │
-│  │     BSP         │  │    BMP280       │  │    HDC1080      │  │
-│  │ (板级支持包)     │  │ (气压传感器)     │  │ (温湿度传感器)  │  │
-│  └─────────────────┘  └─────────────────┘  └─────────────────┘  │
-│  ┌─────────────────┐  ┌─────────────────┐                        │
-│  │     enum        │  │     TDS         │                        │
-│  │  (枚举定义)      │  │ (TDS传感器驱动) │                        │
-│  └─────────────────┘  └─────────────────┘                        │
-├─────────────────────────────────────────────────────────────────┤
-│                         第三方库层 (Lib)                          │
-│  ┌─────────────────┐                                              │
-│  │   Microdot      │                                              │
-│  │  (Web框架)       │                                              │
-│  └─────────────────┘                                              │
-├─────────────────────────────────────────────────────────────────┤
-│                         前端资源层 (Static)                       │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐  │
-│  │   index.html    │  │   Chart.js      │  │   Spectre CSS   │  │
-│  │  (控制界面)      │  │  (图表库)        │  │  (样式库)       │  │
-│  └─────────────────┘  └─────────────────┘  └─────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### 2.2 目录结构
+## 2. 目录结构
 
 ```
 Aotomizer4ESP32S3/
-├── boot.py                 # MicroPython 启动文件
-├── main.py                 # 主程序入口
-├── driver/                 # 硬件驱动层
-│   ├── bsp.py              # 板级支持包 (单例模式)
-│   ├── bmp280.py           # BMP280 气压/温度传感器驱动
-│   ├── hdc1080.py          # HDC1080 温湿度传感器驱动
-│   ├── enum.py             # 系统枚举定义
-│   └── tds.py              # TDS传感器驱动 (串口通信)
-├── domain/                 # 业务逻辑层
-│   ├── AotomizerFSM.py     # 雾化器状态机
-│   ├── WaterProcessFSM.py  # 水处理状态机
-│   ├── wifi.py             # WiFi 连接管理
-│   ├── DBUtils.py          # BTree 数据库工具
-│   ├── sensorData.py       # 传感器数据封装类
-│   ├── AACOps.py           # 湿球温度计算 (空调焓湿图算法)
-│   ├── fileUtils.py        # 文件操作工具
-│   ├── cfgManager.py       # 配置文件管理
-│   └── LogUtils.py         # 日志工具类
-├── lib/                    # 第三方库
-│   └── microdot.py         # Microdot Web 框架 (已修复UTF-8解码)
-├── static/                 # Web 前端资源
-│   ├── index.html          # 控制界面主页 (模块化架构)
-│   ├── chart.umd.js        # Chart.js 图表库
-│   ├── jquery.min.js       # jQuery 库
-│   ├── spectre.min.css     # Spectre CSS 框架
-│   ├── sweetalert.min.js   # SweetAlert 弹窗库
-│   └── favicon.ico         # 网站图标
-├── Doc/                    # 文档目录
-│   └── DESIGN.md           # 系统设计文档
-├── .gitignore              # Git 忽略配置
-└── README.md               # 项目说明
+├── boot.py                    # MicroPython 启动脚本（当前为空）
+├── main.py                    # 主入口：Web 服务、FSM 调度、数据存储
+├── mydb                       # BTree 数据库文件（运行时生成）
+├── .gitignore
+├── README.md
+│
+├── domain/                    # 业务逻辑层
+│   ├── AotomizerFSM.py        # 雾化状态机（核心逻辑）
+│   ├── WaterProcessFSM.py     # 水循环状态机
+│   ├── sensorData.py          # 全局传感器数据容器（单例）
+│   ├── DBUtils.py             # BTree 数据库读写工具
+│   ├── wifi.py                # WiFi 连接管理
+│   ├── AACOps.py              # 空调控制操作
+│   ├── LogUtils.py            # 日志工具
+│   └── fileUtils.py           # 文件工具
+│
+├── driver/                    # 驱动层
+│   ├── bsp.py                 # 板级支持包（单例，硬件初始化与访问）
+│   ├── bmp280.py              # BMP280 气压/温度/海拔传感器驱动
+│   ├── hdc1080.py             # HDC1080 温湿度传感器驱动
+│   ├── tds.py                 # TDS 水质传感器驱动（双通道 UART）
+│   └── enum.py                # 枚举定义（EV/Switch/WaterMark）
+│
+├── lib/                       # 第三方库
+│   └── microdot.py            # 轻量级 Web 框架
+│
+├── static/                    # 前端静态资源
+│   ├── index.html             # 主页面（单文件 SPA）
+│   ├── index_backup.html      # 备份页面
+│   ├── jquery.min.js          # jQuery
+│   ├── spectre.min.css        # Spectre CSS 框架
+│   ├── sweetalert.min.js      # 弹窗组件
+│   ├── chart.umd.js           # 图表组件
+│   └── favicon.ico
+│
+└── Doc/                       # 文档
+    ├── DESIGN.md              # 本设计文档
+    ├── TDS模块信息.txt
+    └── 页面优化方案.txt
 ```
 
 ---
 
-## 3. 硬件接口设计
+## 3. 硬件资源使用情况
 
-### 3.1 ESP32-S3 引脚分配
-
-| 引脚号 | 功能 | 类型 | 说明 |
-|--------|------|------|------|
-| 3 | I2C SCL | 软件I2C | 传感器时钟线 |
-| 8 | I2C SDA | 软件I2C | 传感器数据线 |
-| 48 | WS2812 | 输出 | LED状态指示灯 |
-| 46 | PWM1 | 输出 | 风扇PWM控制1 |
-| 9 | PWM2 | 输出 | 风扇PWM控制2 |
-| 10 | PWM3 | 输出 | 水泵PWM控制 |
-| 11 | GPIO | 输出 | 雾化电磁阀1 (sprayEV1) |
-| 12 | GPIO | 输出 | 雾化电磁阀2 (sprayEV2) |
-| 13 | GPIO | 输出 | 雾化电磁阀3 (sprayEV3) |
-| 14 | GPIO | 输出 | 进水电磁阀 (waterInEV) |
-| 21 | GPIO | 输出 | 废水电磁阀 (wasteWaterEV) |
-| 15 | GPIO | 输入(PULL_UP) | 水箱高水位传感器 |
-| 16 | GPIO | 输入(PULL_UP) | 水箱低水位传感器 |
-| 4 | GPIO | 输入(PULL_DOWN) | 系统使能开关 |
-| 5 | GPIO | 输入(PULL_DOWN) | 喷雾使能开关 |
-| 6 | GPIO | 输入(PULL_DOWN) | 空调强制使能 |
-| 7 | GPIO | 输入(PULL_DOWN) | 空调霍尔传感器 (检测空调运行状态) |
-| 17 | UART1 RX | 输入 | TDS传感器接收 |
-| 18 | UART1 TX | 输出 | TDS传感器发送 |
-
-### 3.2 I2C 传感器
-
-| 传感器 | I2C地址 | 功能 | 测量参数 |
-|--------|---------|------|----------|
-| HDC1080 | 0x40 | 温湿度传感器 | 温度(-40~125℃)、湿度(0~100%) |
-| BMP280 | 0x76 | 气压传感器 | 温度、气压、海拔 |
-
-### 3.3 TDS 传感器
-
-| 参数 | 值 | 说明 |
-|------|-----|------|
-| UART端口 | UART1 | 串口通信 |
-| TX引脚 | GPIO18 | ESP32发送 |
-| RX引脚 | GPIO17 | ESP32接收 |
-| 波特率 | 9600 | 固定波特率 |
-| 帧格式 | 11字节 | HEAD+LEN+CMD+CH+COND(2)+TEMP(2)+DATA(2)+CS(1) |
-
-### 3.4 硬件资源使用情况
+### 3.1 引脚映射总表
 
 | 硬件类别 | 硬件名称 | 引脚/端口 | 使用状态 | 用途描述 |
 |----------|----------|-----------|----------|----------|
-| **GPIO输出** | 雾化电磁阀1 | GPIO11 | 使用中 | 控制第一个喷雾头电磁阀开关 |
-| **GPIO输出** | 雾化电磁阀2 | GPIO12 | 使用中 | 控制第二个喷雾头电磁阀开关 |
-| **GPIO输出** | 雾化电磁阀3 | GPIO13 | 使用中 | 控制第三个喷雾头电磁阀开关 |
-| **GPIO输出** | 进水电磁阀 | GPIO14 | 使用中 | 控制水箱进水电磁阀 |
-| **GPIO输出** | 废水电磁阀 | GPIO21 | 使用中 | 控制水箱排水电磁阀 |
-| **GPIO输出** | WS2812 LED | GPIO48 | 使用中 | 系统状态指示LED灯 |
-| **GPIO输入** | 水箱高水位传感器 | GPIO15(PULL_UP) | 使用中 | 检测水箱是否满水 |
-| **GPIO输入** | 水箱低水位传感器 | GPIO16(PULL_UP) | 使用中 | 检测水箱是否缺水 |
-| **GPIO输入** | 系统使能开关 | GPIO4(PULL_DOWN) | 使用中 | 系统总开关控制 |
-| **GPIO输入** | 喷雾使能开关 | GPIO5(PULL_DOWN) | 使用中 | 喷雾功能使能控制 |
-| **GPIO输入** | 空调强制使能 | GPIO6(PULL_DOWN) | 使用中 | 空调强制运行控制 |
-| **GPIO输入** | 空调霍尔传感器 | GPIO7(PULL_DOWN) | 使用中 | 检测空调运行状态 |
-| **PWM输出** | 风扇电源控制 | GPIO46 (PWM2) | 使用中 | MOS管电源控制，风扇开关 |
-| **PWM输出** | 风扇转速控制 | GPIO9 (PWM3) | 使用中 | 风扇转速调节 |
-| **PWM输出** | 水泵控制 | GPIO10 (PWM1) | 使用中 | 水泵转速调节 |
-| **PWM输出** | PWM通道4 | GPIO预留 | 可用 | 预留扩展，可用于额外风扇或水泵 |
-| **UART** | UART1 | GPIO17(RX)/GPIO18(TX) | 使用中 | TDS传感器串口通信 |
-| **UART** | UART0 | GPIO默认 | 可用 | 预留扩展，可用于调试或其他串口设备 |
-| **I2C** | 软件I2C | GPIO3(SCL)/GPIO8(SDA) | 使用中 | 连接BMP280和HDC1080传感器 |
-| **I2C传感器** | BMP280 | 0x76 | 使用中 | 气压/温度/海拔传感器 |
-| **I2C传感器** | HDC1080 | 0x40 | 使用中 | 温湿度传感器 |
-| **串口传感器** | TDS传感器 | UART1 | 使用中 | 双通道TDS水质检测（进水+水箱） |
+| **GPIO 输出** | 雾化电磁阀1 | GPIO11 | 使用中 | 控制第1路喷雾头电磁阀开关 |
+| **GPIO 输出** | 雾化电磁阀2 | GPIO12 | 使用中 | 控制第2路喷雾头电磁阀开关 |
+| **GPIO 输出** | 雾化电磁阀3 | GPIO13 | 使用中 | 控制第3路喷雾头电磁阀开关 |
+| **GPIO 输出** | 进水电磁阀 | GPIO14 | 使用中 | 控制水箱进水电磁阀 |
+| **GPIO 输出** | 废水电磁阀 | GPIO21 | 使用中 | 控制水箱排水电磁阀 |
+| **GPIO 输出** | WS2812 LED | GPIO48 | 使用中 | RGB 状态指示灯（1颗） |
+| **GPIO 输入** | 水箱高水位传感器 | GPIO15 (PULL_UP) | 使用中 | 检测水箱是否满水，低电平有效 |
+| **GPIO 输入** | 水箱低水位传感器 | GPIO16 (PULL_UP) | 使用中 | 检测水箱是否缺水，低电平有效 |
+| **GPIO 输入** | 系统使能开关 | GPIO4 (PULL_DOWN) | 使用中 | 系统总开关，高电平使能 |
+| **GPIO 输入** | 喷雾使能开关 | GPIO5 (PULL_DOWN) | 使用中 | 喷雾功能使能，高电平允许喷雾 |
+| **GPIO 输入** | 空调强制使能 | GPIO6 (PULL_DOWN) | 使用中 | 强制空调运行信号 |
+| **GPIO 输入** | 空调霍尔传感器 | GPIO7 (PULL_DOWN) | 使用中 | 检测空调压缩机运行状态，高电平表示运行 |
+| **PWM 输出** | 雾化水泵 | GPIO10 (PWM1) | 使用中 | 水泵转速调节，频率 25kHz |
+| **PWM 输出** | 风扇电源控制 | GPIO46 (PWM2) | 使用中 | 风扇 MOS 管开关，0=全断,1023=全通 |
+| **PWM 输出** | 风扇转速控制 | GPIO9 (PWM3) | 使用中 | 风扇转速 PWM 调节，频率 25kHz |
+| **PWM 输出** | PWM 通道4 | GPIO 预留 | 可用 | 预留扩展，可用于额外风扇或水泵 |
+| **UART** | UART1 | GPIO17(RX) / GPIO18(TX) | 使用中 | TDS 水质传感器串口通信（38400bps） |
+| **UART** | UART0 | 默认引脚 | 可用 | 预留扩展，可用于调试或其他串口设备 |
+| **I²C** | 软件 I²C | SCL=GPIO3 / SDA=GPIO8 | 使用中 | 连接 BMP280 和 HDC1080 传感器，100kHz |
+| **I²C 设备** | BMP280 | 地址 0x76 | 使用中 | 气压/温度/海拔传感器 |
+| **I²C 设备** | HDC1080 | 地址 0x40 | 使用中 | 温湿度传感器 |
+| **串口传感器** | TDS 水质模块 | UART1 | 使用中 | 双通道 TDS 检测（通道1=进水，通道2=水箱） |
 | **定时器** | Timer(1) | - | 使用中 | 传感器数据采集定时触发（1秒周期） |
-| **定时器** | Timer(0/2/3) | - | 可用 | 预留扩展，可用于其他定时任务 |
-| **ADC** | ADC通道 | - | 可用 | 预留扩展，可用于模拟量传感器 |
-| **SPI** | SPI总线 | - | 可用 | 预留扩展，可用于SD卡或其他SPI设备 |
-| **WiFi** | WiFi模块 | - | 使用中 | 无线网络连接、AP模式配置 |
+| **定时器** | Timer(0/2/3) | - | 可用 | 预留扩展 |
+| **ADC** | ADC 通道 | - | 可用 | 预留扩展，可用于模拟量传感器 |
+| **SPI** | SPI 总线 | - | 可用 | 预留扩展，可用于 SD 卡或其他 SPI 设备 |
+| **WiFi** | WiFi 模块 | - | 使用中 | 无线网络连接 + AP 热点配置 |
 | **看门狗** | WDT | - | 使用中 | 系统看门狗，60秒超时保护 |
 
-### 3.5 执行器控制
+### 3.2 PWM 通道映射详解
 
-#### 3.5.1 电磁阀控制
+| PWM 通道 | 引脚 | 硬件 | 配置参数 | 说明 |
+|----------|------|------|----------|------|
+| PWM1 | GPIO10 | 雾化水泵 | pwm1freq, pwm1min, pwm1max, pwm1default | 控制水泵转速，影响喷雾量 |
+| PWM2 | GPIO46 | 风扇电源 MOS | pwm2freq, pwm2min, pwm2max, pwm2default | 仅用于电源开关（0 或 1023） |
+| PWM3 | GPIO9 | 风扇转速 | pwm3freq, pwm3min, pwm3max, pwm3default | 风扇转速精细调节 |
+| PWM4 | 预留 | - | pwm4freq, pwm4min, pwm4max, pwm4default | 保留配置接口，硬件未接入 |
+
+### 3.3 PWM 初始化代码位置
+`driver/bsp.py:103-107`：
 ```python
-class EV:
-    WATER_INPUT_EV = 1    # 进水电磁阀
-    WASTE_WATER_EV = 2    # 废水电磁阀
-    WATER_SPRAY_EV_1 = 3  # 喷雾电磁阀1
-    WATER_SPRAY_EV_2 = 4  # 喷雾电磁阀2
-    WATER_SPRAY_EV_3 = 5  # 喷雾电磁阀3
-
-class Switch:
-    OFF = 0
-    ON = 1
+self.__pwmWaterBump = PWM(Pin(10), freq=int(self.config["pwm1freq"]), duty=int(self.config["pwm1default"]))
+self.__fan1PwmPin = PWM(Pin(46), freq=int(self.config["pwm2freq"]), duty=int(self.config["pwm2default"]))
+self.__fan2PwmPin = PWM(Pin(9), freq=int(self.config["pwm3freq"]), duty=int(self.config["pwm3default"]))
 ```
-
-#### 3.4.2 PWM 控制 (4通道)
-| 通道 | 默认频率 | 默认占空比范围 | 用途 |
-|------|----------|----------------|------|
-| PWM1 | 25000Hz | 15%~100% | 风扇控制1 |
-| PWM2 | 25000Hz | 15%~100% | 风扇控制2 |
-| PWM3 | 25000Hz | 15%~100% | 水泵控制 |
-| PWM4 | 25000Hz | 15%~100% | 预留 |
-
-#### 3.4.3 水位传感器
-
-```python
-class WaterMark:
-    EMPTY = 1   # 水箱空 (低水位传感器高电平)
-    NORMAL = 2  # 水箱正常 (高水位低,低水位低)
-    FULL = 3    # 水箱满 (高水位传感器高电平)
-```
-
-检测逻辑:
-- 高水位传感器=1 → 水箱满
-- 高水位=0, 低水位=0 → 水箱正常
-- 高水位=0, 低水位=1 → 水箱空
 
 ---
 
-## 4. 核心模块详细设计
+## 4. 系统架构
 
-### 4.1 BSP (板级支持包)
-
-**文件**: [driver/bsp.py](file:///d:\develop\ESP32\Aotomizer4ESP32S3\driver\bsp.py)
-
-**设计模式**: 单例模式 (Singleton)
-
-**主要功能**:
-1. 硬件初始化 (I2C、PWM、GPIO、传感器)
-2. 传感器数据采集 (定时器驱动)
-3. 执行器控制 (电磁阀、水泵、风扇)
-4. 状态指示 (WS2812 LED)
-
-**关键方法**:
-
-| 方法 | 功能 | 参数 |
-|------|------|------|
-| `setConfig(config)` | 设置系统配置 | JSON配置对象 |
-| `setLEDArray(color)` | 设置LED颜色 | (R,G,B)元组 |
-| `setFan1Pwm(percent)` | 设置风扇PWM | 0-100百分比 |
-| `setEV(ev, status)` | 控制电磁阀 | EV枚举, Switch枚举 |
-| `setWaterPump(percent)` | 控制水泵 | 0-100百分比 |
-| `getWaterTankStatus()` | 获取水位状态 | 返回WaterMark枚举 |
-| `getSensorData()` | 获取传感器数据 | 返回SensorData对象 |
-| `getAirconditionerStatus()` | 获取空调状态 | 返回Switch枚举 |
-| `getWaterAvailableStatus()` | 获取供水状态 | 返回bool |
-
-**传感器数据采集**:
-- 使用 Timer(1) 定时器，周期1000ms
-- 定时读取 HDC1080 温湿度
-- 定时读取 BMP280 气压/海拔
-- 定时读取 TDS 传感器数据 (双通道)
-- 计算湿球温度 (AACOps算法)
-
-### 4.2 AotomizerFSM (雾化器状态机)
-
-**文件**: [domain/AotomizerFSM.py](file:///d:\develop\ESP32\Aotomizer4ESP32S3\domain\AotomizerFSM.py)
-
-**状态定义**:
-
-```python
-class STATUS:
-    INIT = 0              # 初始化状态
-    READY = 1             # 就绪状态
-    AIR_CONDITIONER_ON = 2 # 空调运行状态
-    OVER_TEMP = 3         # 过温状态
-    SPRAY_WATER_1 = 4     # 喷雾阶段1
-    SPRAY_WATER_2 = 5     # 喷雾阶段2
-    SPRAY_WATER_3 = 6     # 喷雾阶段3
-    SPRAY_DELAY = 7       # 喷雾间隔等待
-```
-
-**状态转换图**:
+### 4.1 整体架构图
 
 ```
-INIT → READY → AIR_CONDITIONER_ON → OVER_TEMP → SPRAY_WATER_1 → SPRAY_WATER_2 → SPRAY_WATER_3 → SPRAY_DELAY → READY
-         ↑                                                                                              │
-         └──────────────────────────────────────────────────────────────────────────────────────────────┘
-```
-
-**状态处理逻辑**:
-
-| 状态 | 处理函数 | 触发条件 | 动作 |
-|------|----------|----------|------|
-| INIT | `initDevice()` | 启动时 | 关闭所有执行器，转到READY |
-| READY | `checkAirConditionerStatus()` | 空调运行 | 检测空调霍尔传感器状态 |
-| AIR_CONDITIONER_ON | `checkOverTemperature()` | 温度>阈值 | 监测翅片温度 |
-| OVER_TEMP | `overTemp()` | 温度超限 | 开启水泵+喷雾阀1 |
-| SPRAY_WATER_1 | `checkSpray1Timeout()` | 喷雾时间到 | 切换到喷雾阀2 |
-| SPRAY_WATER_2 | `checkSpray2Timeout()` | 喷雾时间到 | 关闭所有阀，转SPRAY_DELAY |
-| SPRAY_DELAY | `checkSprayDelayTimeout()` | 周期时间到 | 返回READY |
-
-**喷雾时间计算**:
-```python
-extra = max(0, finTemp - 38)
-sprayTime = min(self.minSparyTime + extra, self.maxSparyTime)
-```
-
-**配置参数**:
-
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| fineLThreshold | 31.5℃ | 喷雾启动温度阈值 |
-| fineHThreshold | 36.0℃ | 喷雾停止温度阈值 |
-| sprayPeriod | 40s | 喷雾周期 |
-| minSparyTime | 5s | 最小喷雾时间 |
-| maxSparyTime | 12s | 最大喷雾时间 |
-| pwm1freq | 25000Hz | PWM频率 |
-| pwm1min | 15% | PWM最小占空比 |
-| pwm1max | 100% | PWM最大占空比 |
-
-### 4.3 WaterProcessFSM (水处理状态机)
-
-**文件**: [domain/WaterProcessFSM.py](file:///d:\develop\ESP32\Aotomizer4ESP32S3\domain\WaterProcessFSM.py)
-
-**状态定义**:
-
-```python
-class STATUS:
-    INIT = 0              # 初始化状态
-    READY = 1             # 就绪状态
-    WATER_TANK_OK = 2     # 水箱水位正常
-    WATER_TANK_NOT_OK = 3 # 水箱水位异常
-    WATER_DISCHARGE_OK = 4 # 排水完成
-```
-
-**状态转换图**:
-
-```
-INIT → READY → WATER_TANK_OK → READY
+┌──────────────────────────────────────────────────────────────────┐
+│                        main.py                                   │
+│  ┌──────────┐  ┌───────────────┐  ┌──────────────────────────┐  │
+│  │ Web App  │  │  FSM Scheduler │  │  Timer + Watchdog + Save │  │
+│  └────┬─────┘  └──────┬─────────┘  └───────────┬──────────────┘  │
+│       │               │                        │                 │
+│       ▼               ▼                        ▼                 │
+│  ┌───────────────────────────────────────────────────────────┐   │
+│  │                    domain 业务层                           │   │
+│  │  ┌──────────────┐  ┌───────────────┐  ┌────────────────┐  │   │
+│  │  │ AotomizerFSM │  │ WaterProcessFSM│  │  sensorData   │  │   │
+│  │  └──────┬───────┘  └───────┬───────┘  └───────┬────────┘  │   │
+│  │         │                  │                  │            │   │
+│  │  ┌──────┴──────────────────┴──────────────────┴────────┐   │   │
+│  │  │              DBUtils (BTree 持久化)                  │   │   │
+│  │  └────────────────────────────────────────────────────┘   │   │
+│  └───────────────────────────────────────────────────────────┘   │
+│       │               │                        │                 │
+│       ▼               ▼                        ▼                 │
+│  ┌───────────────────────────────────────────────────────────┐   │
+│  │                    driver 驱动层 (BSP 单例)                │   │
+│  │  ┌────────┐ ┌──────┐ ┌──────┐ ┌───────┐ ┌──────────────┐  │   │
+│  │  │bmp280  │ │hdc   │ │ tds  │ │ GPIO  │ │ PWM 3通道    │  │   │
+│  │  └──┬─────┘ └──┬───┘ └──┬───┘ └───┬───┘ └──────┬───────┘  │   │
+│  │     │    I²C    │   UART          │             │          │   │
+│  └─────┼───────────┼──────────────────┼─────────────┼──────────┘   │
+│        ▼           ▼                  ▼             ▼              │
+│  ┌─────────────────────────────────────────────────────────┐      │
+│  │                 ESP32-S3 硬件                           │      │
+│  └─────────────────────────────────────────────────────────┘      │
+└──────────────────────────────────────────────────────────────────┘
          │
-         ↓ (水位异常)
-    WATER_TANK_NOT_OK → WATER_DISCHARGE_OK → (补水) → READY
+         ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                 浏览器 (index.html SPA)                          │
+│  ┌─────────────────────────────────────────────────────────┐      │
+│  │  系统监控 │ 参数设置 │ 网络设置 │ 日志（4个Tab）          │      │
+│  └─────────────────────────────────────────────────────────┘      │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
-**水处理流程**:
+### 4.2 模块职责
 
-1. **水位检测**: 检测高/低水位传感器状态
-2. **排水阶段**: 水位异常时，排废水60秒
-3. **补水阶段**: 排水完成后，开启进水阀补水
-4. **补水完成**: 水位满或超时850秒，关闭进水阀
+| 模块 | 职责 | 运行周期 |
+|------|------|----------|
+| **main.py** | 主入口、Web 服务、FSM 调度、定时器回调 | 持续 |
+| **BSP (driver/bsp.py)** | 硬件初始化、传感器读取、执行器控制 | 被调用 |
+| **AotomizerFSM** | 雾化逻辑状态机 | 主循环轮询 |
+| **WaterProcessFSM** | 水循环逻辑状态机 | 主循环轮询 |
+| **sensorData** | 全局数据容器 | 被引用 |
+| **DBUtils** | BTree 数据库 KV 读写 | 被调用 |
+| **wifi** | WiFi 连接管理（自动重连、AP/STA 切换） | 后台循环 |
 
-**配置参数**:
+---
 
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| waterFillTimeOut | 850s | 补水超时时间 |
-| waterDischargeTimeOut | 60s | 排水时间 |
-| minAddWaterInterval | 2400s | 最小补水间隔 |
-| waterTDSThreshold | 15ppm | TDS阈值（水箱TDS超过此值时排水） |
+## 5. 核心模块详解
 
-**状态反馈参数**:
+### 5.1 main.py — 主入口
 
-| 参数 | 说明 |
-|------|------|
-| totalAddWaterCount | 总补水次数 |
-| waterMark | 水位状态（1=空、2=正常、3=满） |
-| inWaterTDS | 进水TDS值 |
-| inWaterTemp | 进水水温 |
-| waterTankTDS | 水箱TDS值 |
-| waterTankTemp | 水箱水温 |
-| waterAvailable | 供水状态（可用/不可用） |
-| waterTDSThreshold | TDS阈值 |
+**运行时序：**
+```
+boot → WiFi 连接 → 传感器初始化 → Timer(1) 启动（1秒周期）
+  → Web 服务启动 → 主循环（FSM 调度 + WDT 喂狗 + 数据保存）
+```
 
-### 4.4 SensorData (传感器数据封装)
+**主循环职责：**
+1. 调度 `WaterProcessFSM.tick()`
+2. 调度 `AotomizerFSM.tick()`
+3. WDT 喂狗
+4. 定时保存传感器数据到数据库
 
-**文件**: [domain/sensorData.py](file:///d:\develop\ESP32\Aotomizer4ESP32S3\domain\sensorData.py)
+**Timer 回调 (`timerHandler`)：** 每 1 秒触发
+1. 调用 BSP 的 `readBmp280` → 气压/温度/海拔
+2. 调用 BSP 的 `readHdc1080` → 温湿度
+3. 调用 BSP 的 `_tdsTick()` → TDS 异步状态机
+4. 读取水箱水位传感器（高/低）
+5. 计算湿球温度
 
-**数据字段**:
+**Web API 路由（Microdot）：**
 
-| 字段 | 默认值 | 说明 |
-|------|--------|------|
-| temp | -9999 | 温度 |
-| humi | -9999 | 湿度 |
-| wetBulbTemp | -9999 | 湿球温度 |
-| presure | -9999 | 气压 |
-| altitude | -9999 | 海拔 |
-| luminance | -9999 | 光照度 |
-| pm25 | -9999 | PM2.5 |
-| tempBMP280 | -9999 | BMP280温度 |
-| tempLM75_1/2/3 | -9999 | LM75温度 |
-| inWaterTDS | -9999 | 进水TDS |
-| inWaterTemp | -9999 | 进水水温 |
-| waterTankTDS | -9999 | 水箱TDS |
-| waterTankTemp | -9999 | 水箱水温 |
+| 路由 | 方法 | 功能 |
+|------|------|------|
+| `/` | GET | 返回 index.html |
+| `/favicon.ico` | GET | 返回图标 |
+| `/static/<path>` | GET | 静态资源服务 |
+| `/status` | GET | 查询系统状态 / 设置参数（通过 mode=get/set 区分） |
+| `/scanap` | GET | 扫描周围 WiFi AP |
+| `/setwifi` | GET | 设置 WiFi SSID 和密码 |
+| `/reset` | GET | 恢复出厂配置 |
+| `/restart` | GET | 重启设备 |
 
-**设计特点**:
-- 使用 property 封装，便于外部访问
-- `__dict__` 方法返回所有数据字典，方便JSON序列化
+**配置数据库参数（节选共 50+ 项）：**
 
-### 4.5 AACOps (湿球温度计算)
+| 参数名 | 类型 | 说明 |
+|--------|------|------|
+| pwm1freq / pwm2freq / pwm3freq | int | PWM 频率（默认 25000） |
+| pwm1min / pwm2min / pwm3min | int | PWM 最小占空比（0-100） |
+| pwm1max / pwm2max / pwm3max | int | PWM 最大占空比（0-100） |
+| pwm1default / pwm2default / pwm3default | int | PWM 默认占空比 |
+| sprayPeriod | int | 喷雾周期（秒，默认 40） |
+| minSparyTime / maxSparyTime | int | 单次喷雾最短/最长时间（秒） |
+| minAddWaterInterval | int | 最小补水间隔（秒） |
+| waterDischargeTimeOut / waterFillTimeOut | int | 排水/进水超时（秒） |
+| fineHThreshold / fineLThreshold | float | 翅片温度高/低阈值（℃） |
+| fineTempThreshold | float | 翅片温度临界阈值（℃） |
+| waterTDSThreshold | int | 水箱 TDS 阈值（ppm，超过则排水） |
+| modbusSlaveAddr / modbusBadud | int | Modbus 从机地址 / 波特率 |
+| latitude / longitude / altitude | float | 地理位置 |
+| wifiname / wifipwd | str | 目标 WiFi 名称 / 密码 |
+| sw1 / sw1name, sw2 / sw2name | bool/str | 2路开关量及其名称 |
+| serverurl | str | 远程服务器地址 |
 
-**文件**: [domain/AACOps.py](file:///d:\develop\ESP32\Aotomizer4ESP32S3\domain\AACOps.py)
+### 5.2 BSP (driver/bsp.py) — 板级支持包
 
-**算法原理**:
-基于空调焓湿图计算湿球温度，用于评估空气冷却效率。
+**设计模式：** 单例（`__new__`）
 
-**核心公式**:
-- 饱和水汽压: `E(t) = 611.2 * exp(17.67*t/(243.5+t))`
-- 干空气比焓: `g(t) = 1.01*t`
-- 水蒸气比焓: `v(t) = 2501 + 1.85*t`
-- 含湿量: `d(t,rh) = 0.622*rh*E(t)/(p-rh*E(t))`
-- 湿空气比焓: `h(t,rh) = g(t) + d(t,rh)*v(t)`
+**初始化流程（`__init__`）：**
+```
+1. 创建 SoftI2C(SCL=Pin(3), SDA=Pin(8), freq=100000)
+2. 创建 WS2812 NeoPixel(Pin(48), 1)
+3. 初始化所有 GPIO（电磁阀、传感器、开关）
+4. 创建 SensorData 单例
+5. 初始化 BMP280、HDC1080、TDS 传感器
+6. 初始化 PWM（3 通道）
+```
 
-**优化策略**:
-1. 预计算不随湿球温度变化的常量
-2. 内联计算消除重复函数调用
-3. 二分法搜索替代线性搜索 (100-300倍性能提升)
-4. 可选牛顿迭代法 (5-10次迭代收敛)
-
-### 4.6 DBUtils (数据存储)
-
-**文件**: [domain/DBUtils.py](file:///d:\develop\ESP32\Aotomizer4ESP32S3\domain\DBUtils.py)
-
-**存储方式**: BTree 数据库 (MicroPython内置)
-
-**数据库文件**: `mydb`
-
-**主要方法**:
+**关键方法：**
 
 | 方法 | 功能 |
 |------|------|
-| `save(kv)` | 保存键值对 |
-| `get(k)` | 获取单个值 |
-| `multiGet(keys)` | 批量获取多个值 |
-| `getAll()` | 获取所有数据 |
-| `openDB()` | 打开数据库 |
-| `closeDB()` | 关闭数据库 |
+| `initHW(config)` | 执行硬件初始化（创建 PWM、读取初始传感器值） |
+| `readBmp280()` | 读取气压/温度/海拔，失败返回 -9999 |
+| `readHdc1080()` | 读取温湿度，失败返回 -9999 |
+| `_tdsTick()` | TDS 异步状态机轮询（每 1 秒调用） |
+| `setWaterPump(percent)` | 设置水泵 PWM 占空比（0-100%） |
+| `setFan1Pwm(percent)` | 设置风扇 PWM：PWM2 电源 + PWM3 转速 |
+| `openEV(evType)` / `closeEV(evType)` | 打开/关闭指定电磁阀 |
+| `getWaterMark()` | 读取水箱水位，返回 enum.WaterMark |
+| `isSysEnabled()` / `isSprayEnabled()` | 读取系统/喷雾使能开关 |
+| `isACHallActive()` | 读取空调霍尔传感器 |
+| `setLEDArray(color)` | 设置 WS2812 LED 颜色 |
 
-**存储数据**:
-- systemConfig: 系统配置
-- totalRunTime: 总运行时间
-- totalSprayCount: 总喷雾次数
-- totalAddWaterCount: 总补水次数
+### 5.3 雾化状态机 (domain/AotomizerFSM.py)
 
-**注意**: DBUtil仅支持字符串存储，读取时需根据实际需要转换为对应类型。
+**设计模式：** 状态机（FSM）
 
-### 4.7 WiFi 模块
+**喷雾逻辑核心：**
+- 翅片温度 > `fineHThreshold` + 湿度 < `fineHThreshold` → 开始喷雾
+- 翅片温度 < `fineLThreshold` → 停止喷雾
+- 单次喷雾时长 ≥ `maxSparyTime` → 强制停止
+- 喷雾间隔 ≥ `sprayPeriod` → 允许再次喷雾
 
-**文件**: [domain/wifi.py](file:///d:\develop\ESP32\Aotomizer4ESP32S3\domain\wifi.py)
+**状态枚举（STATUS）：**
+| 状态值 | 名称 | 说明 |
+|--------|------|------|
+| 0 | IDLE | 空闲 |
+| 1 | SPRAY_WATER_1 | 喷雾通道1 |
+| 2 | SPRAY_WATER_2 | 喷雾通道2 |
+| 3 | SPRAY_WATER_3 | 喷雾通道3 |
+| 4 | WAIT_NEXT_PERIOD | 等待下一个喷雾周期 |
 
-**功能**:
-1. WiFi Station 模式连接
-2. WiFi AP 模式配置
-3. WiFi 扫描
-4. 连接状态检测
-
-**主要方法**:
-
-| 方法 | 功能 | 返回值 |
-|------|------|--------|
-| `connectToWifi(ssid, pwd)` | 连接WiFi | True/False |
-| `testWifiConnect(ssid, pwd)` | 测试WiFi连接 | True/False |
-| `startAP(apname, appwd)` | 启动AP模式 | True/False |
-| `stopAP()` | 关闭AP模式 | True/False |
-| `scanAP()` | 扫描WiFi | {ssid: RSSI} |
-| `isConnected()` | 检查连接状态 | True/False |
-| `getStationIP()` | 获取Station IP | IP字符串 |
-
-**连接超时**: 35秒
-
----
-
-## 5. Web API 设计
-
-### 5.1 API 接口列表
-
-| 接口 | 方法 | 功能 | 参数 |
-|------|------|------|------|
-| `/` | GET | 主页 | 无 |
-| `/status` | GET | 获取/设置状态 | mode, devicepwd, ... |
-| `/scanap` | GET | 扫描WiFi | 无 |
-| `/setwifi` | GET | 配置WiFi | ssid, pwd, serverurl, ... |
-| `/reset` | GET | 重置配置 | devicepwd |
-| `/restart` | GET | 重启设备 | devicepwd |
-| `/static/<path>` | GET | 静态资源 | 文件路径 |
-| `/favicon.ico` | GET | 网站图标 | 无 |
-
-### 5.2 `/status` API 详细设计
-
-#### 5.2.1 查询模式 (mode=get)
-
-**请求**: `/status?mode=get&devicepwd=xxx`
-
-**响应**:
-```json
-{
-    "errCode": "0",
-    "mode": "normal",
-    "sw1": true,
-    "sw2": false,
-    "sw1name": "灯光",
-    "sw2name": "风扇",
-    "temp": 25.6,
-    "humi": 65.2,
-    "wetBulbTemp": 20.3,
-    "presure": 101325,
-    "luminance": -9999,
-    "pm25": -9999,
-    "runTime": 12345,
-    "totalRunTime": 123456,
-    "totalSprayCount": 50,
-    "totalAddWaterCount": 10,
-    "fineTempThreshold": 31.5,
-    "fineHThreshold": 36.0,
-    "fineLThreshold": 31.5,
-    "sprayPeriod": 40,
-    "minSparyTime": 5,
-    "maxSparyTime": 12,
-    "minAddWaterInterval": 2400,
-    "waterFillTimeOut": 850,
-    "waterDischargeTimeOut": 60,
-    "waterTDSThreshold": 15,
-    "pwm1freq": 25000,
-    "pwm1min": 15,
-    "pwm1max": 100,
-    "pwm1default": 0,
-    "pwm2freq": 25000,
-    "pwm2min": 15,
-    "pwm2max": 100,
-    "pwm2default": 0,
-    "pwm3freq": 25000,
-    "pwm3min": 15,
-    "pwm3max": 100,
-    "pwm3default": 0,
-    "pwm4freq": 25000,
-    "pwm4min": 15,
-    "pwm4max": 100,
-    "pwm4default": 0,
-    "waterMark": 3,
-    "waterAvailable": true,
-    "inWaterTDS": 14.3,
-    "inWaterTemp": 22.5,
-    "waterTankTDS": 14.05,
-    "waterTankTemp": 24.5,
-    "airConditionerStatus": 1,
-    "deviceId": "E8F60A8A5500",
-    "devicename": "Aotomizer",
-    "deviceusername": "admin",
-    "devicepwd": "pengping",
-    "wifiname": "cissco_2g",
-    "wifipwd": "xxxxxx",
-    "APName": "Atomizer",
-    "APPwd": "Changeme_123",
-    "serverurl": "http://xxx",
-    "ver": "1.1"
-}
+**`tick()` 执行逻辑：**
+```
+1. 读取翅片温度/湿度
+2. 根据状态执行对应动作
+3. 更新 totalSprayCount 统计
 ```
 
-**参数说明**:
+### 5.4 水循环状态机 (domain/WaterProcessFSM.py)
 
-| 参数 | 类型 | 说明 |
+**设计模式：** 状态机（FSM）
+
+**状态枚举：**
+| 状态值 | 名称 | 说明 |
+|--------|------|------|
+| 0 | IDLE | 空闲 |
+| 1 | WAIT | 等待补水（低水位触发） |
+| 2 | FILLING | 正在进水 |
+| 3 | DISCHARGING | 正在排水 |
+
+**补水逻辑：**
+- 低水位触发进水
+- 进水量超 `waterFillTimeOut` → 超时退出
+- 高水位检测到 → 停止进水
+- 进水量累计 → 更新 `totalAddWaterCount`
+
+**排水逻辑：**
+- 当 TDS 超过阈值 `waterTDSThreshold` → 自动排水补水
+
+### 5.5 sensorData (domain/sensorData.py) — 全局数据容器
+
+**设计模式：** 单例 + 属性访问
+
+**包含字段（全部提供 property）：**
+
+| 字段 | 类型 | 说明 |
 |------|------|------|
-| `runTime` | int | 本次开机运行时间（秒），从 `initialBootTime` 开始计算 |
-| `totalRunTime` | int | 累计运行时间（秒），设备总运行时间 |
-| `sw1name` | str | 开关1名称（支持中文） |
-| `sw2name` | str | 开关2名称（支持中文） |
-| `waterMark` | int | 水位状态：1=空、2=正常、3=满 |
-| `waterAvailable` | bool | 供水状态：true=可用、false=不可用 |
-| `airConditionerStatus` | int | 空调状态：0=关、1=开 |
-| `inWaterTDS` | float | 进水TDS值 |
-| `inWaterTemp` | float | 进水水温 |
-| `waterTankTDS` | float | 水箱TDS值 |
-| `waterTankTemp` | float | 水箱水温 |
-| `waterTDSThreshold` | int | TDS阈值（ppm） |
+| temp | float | BMP280 温度（℃） |
+| presure | float | BMP280 气压（Pa） |
+| altitude | float | 海拔高度（m） |
+| fineTemp | float | 翅片温度（HDC1080，℃） |
+| humi | float | 环境湿度（%RH） |
+| wetBulbTemp | float | 湿球温度（℃，计算值） |
+| inWaterTDS | float | 进水 TDS（ppm） |
+| inWaterTemp | float | 进水温度（℃） |
+| waterTankTDS | float | 水箱 TDS（ppm） |
+| waterTankTemp | float | 水箱温度（℃） |
+| waterMark | enum.WaterMark | 水箱水位 |
+| airConditionerStatus | int | 空调运行状态（0=停止，1=运行） |
 
-#### 5.2.2 设置模式 (mode=set)
+**无效值约定：** `-9999` 表示传感器读取失败。
 
-**请求**: `/status?mode=set&devicepwd=xxx&fineHThreshold=42&fineLThreshold=37.5&sw1=true&sw2=false&...`
+### 5.6 DBUtils (domain/DBUtils.py) — 数据库工具
 
-**可设置参数**:
-- fineHThreshold: 温度高阈值
-- fineLThreshold: 温度低阈值
-- pwm1freq/pwm1min/pwm1max/pwm1default: PWM1参数
-- pwm2freq/pwm2min/pwm2max/pwm2default: PWM2参数
-- pwm3freq/pwm3min/pwm3max/pwm3default: PWM3参数
-- pwm4freq/pwm4min/pwm4max/pwm4default: PWM4参数
-- sw1/sw2: 开关状态
-- sw1name/sw2name: 开关名称（支持中文）
-- minAddWaterInterval: 补水间隔
-- waterFillTimeOut: 补水超时
-- waterDischargeTimeOut: 排水超时
-- waterTDSThreshold: TDS阈值
-- minSparyTime: 最小喷雾时间
-- maxSparyTime: 最大喷雾时间
-- sprayPeriod: 喷雾周期
+**底层技术：** ubtree (MicroPython BTree)
 
-**响应**:
-```json
-{
-    "errCode": "0",
-    "msg": "set finish."
-}
-```
+**数据库文件：** `mydb`（相对路径）
 
-### 5.3 `/setwifi` API 详细设计
+**重要限制：** BTree 数据库 key 和 value 均为字符串类型，所有值需序列化存储。
 
-**请求**: `/setwifi?ssid=xxx&pwd=xxx&serverurl=xxx&devicepwd=xxx&devicename=xxx&sw1name=xxx&sw2name=xxx`
+**提供方法：**
 
-**流程**:
-1. 测试WiFi连接
-2. 保存配置到数据库
-3. 设置重启定时器 (10秒后重启)
-
-**响应**:
-```json
-{
-    "errCode": "0",
-    "msg": "connect wifi success and node will reboot after 5s.",
-    "APName": "xxx",
-    "url": "192.168.x.x"
-}
-```
-
----
-
-## 6. 系统配置设计
-
-### 6.1 默认配置
-
-```python
-defaulteSystemConfig = {
-    "deviceusername": "admin",
-    "devicepwd": "pengping",
-    "devicename": "Aotomizer",
-    "wifiname": "cissco_2g",
-    "wifipwd": "13438045703",
-    "APName": "Atomizer",
-    "APPwd": "Changeme_123",
-    "APIP": "123",
-    "APGateway": "192.168.1.1",
-    "APNetMask": "255.255.255.0",
-    "serverurl": "http://3a892544f7.qicp.vip",
-    "mode": "normal",
-    "sw1": True,
-    "sw2": False,
-    "sw1name": "S1",
-    "sw2name": "S2",
-    "fineHThreshold": 36,
-    "fineLThreshold": 31.5,
-    "modbusSlaveAddr": 6,
-    "modbusBadud": 38400,
-    "deviceId": "",
-    "waterTDSThreshold": 15,
-    "waterDischargeTimeOut": 60,
-    "waterFillTimeOut": 850,
-    "minAddWaterInterval": 2400,
-    "sprayPeriod": 40,
-    "minSparyTime": 5,
-    "maxSparyTime": 12,
-    "pwm1freq": 25000,
-    "pwm1default": 0,
-    "pwm1min": 15,
-    "pwm1max": 100,
-    "pwm2freq": 25000,
-    "pwm2default": 0,
-    "pwm2min": 15,
-    "pwm2max": 100,
-    "pwm3freq": 25000,
-    "pwm3default": 0,
-    "pwm3min": 15,
-    "pwm3max": 100,
-    "pwm4freq": 25000,
-    "pwm4default": 0,
-    "pwm4min": 15,
-    "pwm4max": 100,
-    "altitude": 498,
-    "latitude": 30.67831,
-    "longitude": 104.0375,
-    "wifinameDefault": "IOT_2G",
-    "wifipwdDefault": "13438045703",
-    "ver": "1.1"
-}
-```
-
-### 6.2 运行模式
-
-| 模式 | 说明 | 行为 |
-|------|------|------|
-| normal | 正常运行模式 | 连接WiFi，运行状态机，广播IP |
-| config | 配置模式 | 启动AP，等待WiFi配置，300秒超时重启 |
-
-### 6.3 参数分组配置
-
-参数按相关性智能分组，便于前端显示和管理：
-
-| 分组 | 参数 |
+| 方法 | 功能 |
 |------|------|
-| 温度阈值 | fineHThreshold, fineLThreshold |
-| 喷雾参数 | sprayPeriod, minSparyTime, maxSparyTime, waterTDSThreshold |
-| PWM配置 | pwm1freq, pwm1min, pwm1max, pwm1default, pwm2freq, pwm2min, pwm2max, pwm2default, pwm3freq, pwm3min, pwm3max, pwm3default, pwm4freq, pwm4min, pwm4max, pwm4default |
-| 补水参数 | minAddWaterInterval, waterFillTimeOut, waterDischargeTimeOut |
-| 开关配置 | sw1, sw2, sw1name, sw2name |
-| 网络配置 | wifiname, wifipwd, APName, APPwd, serverurl |
+| `openDB()` | 打开/创建数据库 |
+| `closeDB()` | 关闭数据库 |
+| `save(key, value)` | 保存 KV（自动 flush） |
+| `get(key, default="")` | 读取 KV，不存在返回默认值 |
+| `getAll(verbose=False)` | 读取全部 KV 到 dict |
+| `set(k, v)` | 直接设置 KV（调用 save） |
+| `delete(key)` | 删除 KV |
+| `count()` | 返回 KV 总数 |
+| `contains(key)` | 检查 key 是否存在 |
 
-**参数类型转换**: DBUtil仅支持字符串存储，读取时需根据实际需要转换为对应类型：
-- 数值型参数: `int(db.get("totalRunTime"))`
-- 布尔型参数: `bool(db.get("sw1"))`
+**使用示例：**
+```python
+from domain.DBUtils import DBUtils
+DBUtils.save("fineHThreshold", "36.0")
+val = DBUtils.get("fineHThreshold")  # 返回 "36.0"
+```
+
+**类型转换注意：** DB 中存储的是字符串，使用时需要手动转换：
+```python
+thd = float(DBUtils.get("fineHThreshold", "36.0"))
+```
 
 ---
 
-## 7. 系统启动流程
+## 6. 传感器驱动详解
 
-### 7.1 启动流程图
+### 6.1 BMP280 (driver/bmp280.py)
+
+| 属性 | 值 |
+|------|-----|
+| 类型 | I²C 气压/温度传感器 |
+| 地址 | 0x76 |
+| 硬件 I²C | 软件 I²C（SoftI2C） |
+| 热插拔 | ✅ 支持（`hardWareReady` 自动重连） |
+| 无效值 | -9999 |
+
+**热插拔机制：**
+- 所有 I²C 操作包裹在 `try/except (OSError, TypeError)` 中
+- 异常时设置 `hardWareReady = False`
+- 下次 `get()` 调用时检测到 `hardWareReady == False` 会自动重新 `initHardware()`
+
+**关键设计：**
+- 异常时立即将 T/P 重置为 -9999（不会使用过期数据）
+- `getAltitude()` 在压力无效时直接返回 -9999
+
+### 6.2 HDC1080 (driver/hdc1080.py)
+
+| 属性 | 值 |
+|------|-----|
+| 类型 | I²C 温湿度传感器 |
+| 地址 | 0x40 |
+| 热插拔 | ✅ 支持（同 BMP280 模式） |
+| 硬件校验 | ❌ 无校验码，依赖 I²C ACK |
+| 无效值 | -9999 |
+
+**数据校验策略：**
+- 依赖 I²C 总线层的 ACK 确认
+- MicroPython 层不做额外 CRC 校验
+- 业务层通过异常捕获保证无效值传递
+
+### 6.3 TDS (driver/tds.py)
+
+| 属性 | 值 |
+|------|-----|
+| 类型 | UART 水质传感器 |
+| 串口 | UART1, 38400bps |
+| 通道数 | 2（通道1=进水，通道2=水箱） |
+| 帧格式 | 18 字节（固定头 0xAA 0x55 + 数据 + 校验和） |
+| 热插拔 | ✅ 基本支持（UART 恢复稳定后可重新通信） |
+| 无效值 | -9999.0 |
+
+**异步状态机设计（2026-06 重构）：**
 
 ```
-boot.py 执行
-    ↓
-main.py 执行
-    ↓
-加载/创建系统配置 (DBUtils)
-    ↓
-生成设备UUID (首次启动)
-    ↓
-初始化 BSP (单例)
-    ↓
-初始化状态机 (AotomizerFSM + WaterProcessFSM)
-    ↓
-启动看门狗定时器 (60秒超时, 5秒喂狗)
-    ↓
-判断运行模式
-    ├── normal模式 → 连接WiFi → 成功 → 广播IP线程 → Web服务器线程 → 主循环
-    │                ↓
-    │                失败 → config模式
+状态机：
+  _STATE_IDLE(0)    → 空闲，等待 start_read()
+  _STATE_WAITING(1) → 已发送指令，等待响应
+
+接口：
+  start_read(channel) → 发送读指令，返回是否成功
+  poll()              → 非阻塞轮询，返回结果 dict 或 None
+```
+
+**轮询超时：** 3000ms（保证在 3 秒内有机会接收完整帧）
+
+**帧解析流程：**
+1. `poll()` 检查 `uart.any()` 是否有数据
+2. `uart.read()` 读取并追加到 `rx_buf`
+3. `rx_buf` ≥ 18 字节时调用 `_find_valid_frame()`
+4. 验证帧头 (0xAA 0x55) 和校验和
+5. 提取 TDS 值（4 字节 float）和温度（4 字节 float）
+
+**BSP 集成方式 (`_tdsTick`)：**
+- Timer(1) 每 1 秒触发一次 `_tdsTick()`
+- 使用状态机顺序读取 2 个通道
+- 第 1 秒：`start_read(1)` → 状态切 WAITING
+- 第 2 秒（Timer 再触发）：`poll()` 拿到通道1数据 → `start_read(2)`
+- 第 3 秒：`poll()` 拿到通道2数据 → 回到 IDLE
+- 若超时或校验失败：`poll()` 返回 None → 数据保持 -9999.0
+
+**关键改进：**
+- 消除 Timer 回调中的阻塞 `time.sleep_ms()`
+- 使用 `uart.read()` 前先判空，避免 NoneType 错误
+- 失败时立即将数据置为 -9999.0（而非保持旧值）
+
+### 6.4 I²C 总线特性
+
+| 项目 | 当前配置 |
+|------|----------|
+| 实现方式 | 软件 I²C (SoftI2C) |
+| SCL/SDA | GPIO3 / GPIO8 |
+| 速率 | 100kHz (Standard Mode) |
+| 总线设备数 | 2 (BMP280 + HDC1080) |
+| 连接距离 | 约 1.5 米 |
+| 上拉电阻 | 需外置（BSP 未启用内部上拉） |
+| 建议上拉 | 2.2kΩ 或 4.7kΩ |
+
+**通信距离分析：**
+- 标准 I²C 理论最大距离取决于 SDA/SCL 的电容负载
+- 100kHz 模式下，1.5 米连线 **完全稳定**
+- 若需要更长距离，建议：
+  - 降低速率到 10kHz
+  - 使用 I²C 缓冲器（如 PCA9306）
+  - 减小上拉电阻（增强驱动能力）
+
+---
+
+## 7. Web API 详细设计
+
+### 7.1 `/status` — 系统状态查询与参数设置
+
+**请求方式：** GET
+
+**mode 参数区分两种模式：**
+
+#### mode=get（查询）
+返回完整系统状态 JSON：
+
+```json
+{
+  "errCode": "0",
+  "errMsg": "success",
+  // --- 传感器数据 ---
+  "temp": 23.85,
+  "presure": 100530,
+  "altitude": 498,
+  "fineTemp": 23.85,
+  "humi": 70.22,
+  "wetBulbTemp": 19.92,
+  "inWaterTDS": 14.3,
+  "inWaterTemp": 24.0,
+  "waterTankTDS": 14.05,
+  "waterTankTemp": 24.5,
+  "waterMark": 3,
+  "waterAvailable": true,
+  "airConditionerStatus": 0,
+  "runTime": 921,
+  // --- 配置参数 ---
+  "mode": "normal",
+  "sprayPeriod": 40,
+  "minSparyTime": 5,
+  "maxSparyTime": 12,
+  "minAddWaterInterval": 2400,
+  "waterTDSThreshold": 80,
+  "fineHThreshold": 36.0,
+  "fineLThreshold": 24.0,
+  "pwm1freq": 25000,
+  "pwm1min": 15,
+  "pwm1max": 100,
+  "pwm1default": 0,
+  "pwm2freq": 25000,
+  "pwm2min": 15,
+  "pwm2max": 100,
+  "pwm2default": 0,
+  "pwm3freq": 25000,
+  "pwm3min": 15,
+  "pwm3max": 100,
+  "pwm3default": 0,
+  // --- 开关 ---
+  "sw1": true, "sw1name": "S1",
+  "sw2": false, "sw2name": "S2",
+  // --- 网络 ---
+  "wifiname": "cissco_2g",
+  "wifipwd": "xxx",
+  // --- 统计 ---
+  "totalSprayCount": 3748,
+  "totalRunTime": 200456,
+  "totalAddWaterCount": 4,
+  // --- 设备信息 ---
+  "deviceId": "E8F60A8A5500",
+  "devicename": "Aotomizer",
+  "ver": "1.1"
+}
+```
+
+**waterMark 枚举值：**
+| 值 | 含义 |
+|----|------|
+| 1 | 空 |
+| 2 | 正常 |
+| 3 | 满 |
+
+**runTime 说明：** 本次开机以来运行的秒数（从 bootTime 起计时）
+
+#### mode=set（设置参数）
+通过 query string 传入需要设置的参数，支持 UTF-8 编码：
+
+```
+/status?mode=set&devicepwd=xxx&fineHThreshold=36.0&fineLThreshold=24.0
+&pwm1freq=25000&pwm1min=15&pwm1max=100&pwm1default=0
+&sw1=true&sw2=false&sw1name=开关1&sw2name=开关2
+```
+
+**注意事项：**
+- `devicepwd` 参数必须正确
+- 所有 PWM 通道参数需同时下发（pwm1~pwm4 的 freq/min/max/default）
+- 参数值通过 `urllib.parse.unquote` 解码，支持 UTF-8 中文
+- 布尔值通过自定义 `_parseBool` 函数解析（支持 true/false/0/1/on/off）
+
+### 7.2 `/scanap` — WiFi 扫描
+
+返回周围 WiFi AP 列表（JSON）：
+```json
+{
+  "errCode": "0",
+  "aps": ["WiFi-2.4G", "OfficeWiFi", "..."]
+}
+```
+
+### 7.3 `/setwifi` — 设置 WiFi
+
+```
+/setwifi?ssid=xxx&pwd=xxx
+```
+
+设置后立即尝试连接，可通过 `/scanap` 确认。
+
+### 7.4 `/reset` — 恢复出厂
+
+清除所有用户配置，恢复默认值。
+
+### 7.5 `/restart` — 重启设备
+
+调用 `machine.reset()` 重启。
+
+---
+
+## 8. 前端架构 (static/index.html)
+
+### 8.1 技术选型
+| 类别 | 技术 |
+|------|------|
+| 框架 | 单文件 SPA（原生 JS + jQuery） |
+| 样式 | Spectre CSS（响应式） |
+| 弹窗 | SweetAlert |
+| 图表 | Chart.js |
+
+### 8.2 页面结构（Tab 标签页）
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  [系统监控]  [参数设置]  [网络设置]                         │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  Tab 1: 系统监控                                            │
+│  ├── 实时数据卡片（温湿度、TDS、水位、空调状态）             │
+│  ├── 运行状态显示（FSM 状态、喷雾计数）                      │
+│  └── 趋势图表                                                │
+│                                                             │
+│  Tab 2: 参数设置                                            │
+│  ├── 喷雾参数组（阈值、周期、TDS 阈值）                      │
+│  ├── PWM 参数组（3 通道独立配置）                            │
+│  ├── 开关参数组（sw1/sw2 + 中文名称）                        │
+│  └── 应用 / 重置按钮                                        │
+│                                                             │
+│  Tab 3: 网络设置                                            │
+│  ├── AP 扫描列表                                            │
+│  ├── SSID / Password 输入                                   │
+│  └── 连接测试                                                │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 8.3 核心模块
+
+| 模块 | 说明 |
+|------|------|
+| `CONFIG` | 全局配置（API 地址、刷新间隔、参数分组定义） |
+| `UTILS.nv(v, def)` | 无效值处理：`undefined/null/-9999 → def`，**保留 0** |
+| `DeviceModel` | 后端数据解析类，将 raw JSON 转为前端可用格式 |
+| `createRefreshController()` | 刷新控制器，定时拉取 `/status` 并更新所有视图 |
+| `createEventController()` | 事件控制器，处理按钮点击、Tab 切换等交互 |
+| `Views[]` | 数组，每个 Tab 一个独立视图函数（工厂模式） |
+
+### 8.4 数据处理关键函数
+
+```javascript
+// 核心：正确处理后端的无效值（-9999）和零值（0）
+var nv = function(v, def) {
+    if (v === undefined || v === null) return def;
+    if (typeof v === 'number' && v === -9999) return def;
+    return v;
+};
+```
+
+**问题历史：** 早期实现用 `rawData.inWaterTDS || invalid`，当后端返回 `0.0`（TDS 读数为 0 ppm）时被误判为无效值，导致 TDS 始终显示 `----`。改用 `nv()` + 严格类型检查解决。
+
+### 8.5 参数分组定义（后端 CONFIG 配置）
+
+```javascript
+PARAM_GROUPS = [
+    {
+        name: "喷雾参数",
+        params: [
+            "fineHThreshold", "fineLThreshold", "fineTempThreshold",
+            "sprayPeriod", "minSparyTime", "maxSparyTime",
+            "minAddWaterInterval", "waterTDSThreshold"
+        ]
+    },
+    {
+        name: "PWM 参数",
+        perChannel: true,
+        channels: 4,
+        channelLabels: ["水泵", "风扇电源", "风扇转速", "预留"],
+        perChannelParams: ["freq", "min", "max", "default"]
+    },
+    {
+        name: "开关配置",
+        params: ["sw1", "sw1name", "sw2", "sw2name"]
+    }
+];
+```
+
+---
+
+## 9. 数据流
+
+### 9.1 传感器数据流
+
+```
+Timer(1) 1秒周期
     │
-    └── config模式 → 启动AP → 配置定时器(300秒) → Web服务器线程 → 等待配置
+    ▼
+BSP._sensorTick()
+    │
+    ├──► bmp280.get() ──► sensorData.temp / presure / altitude
+    │
+    ├──► hdc1080.get() ──► sensorData.fineTemp / humi
+    │
+    ├──► tds._tdsTick() ──► sensorData.inWaterTDS / inWaterTemp
+    │                     └──► sensorData.waterTankTDS / waterTankTemp
+    │
+    └──► waterMark 读取 ──► sensorData.waterMark
+                          └──► sensorData.waterAvailable
 ```
 
-### 7.2 主循环逻辑
+### 9.2 参数设置数据流
 
+```
+前端 Apply 按钮
+    │
+    ▼
+收集所有参数（PWM1~PWM4 全部通道）
+    │
+    ▼
+GET /status?mode=set&key1=val1&...
+    │
+    ▼
+main.py handler()
+    ├── devicepwd 校验
+    ├── urllib.parse.unquote（中文解码）
+    ├── DBUtils.save(key, str(value)) → 持久化
+    ├── DBUtils 存为字符串，使用时再类型转换
+    │
+    ▼
+刷新 BSP config 缓存 → BSP 运行时立即生效
+```
+
+### 9.3 主循环数据流
+
+```
+main.py sysTask() (while True)
+    │
+    ├──► WaterProcessFSM.tick() → 控制进水/排水
+    │       ├── 读 sensorData.waterMark
+    │       ├── 读 sensorData.waterTankTDS（TDS 阈值判断）
+    │       └── 写 EV 电磁阀
+    │
+    ├──► AotomizerFSM.tick() → 控制喷雾
+    │       ├── 读 sensorData.fineTemp / humi
+    │       ├── 读系统/喷雾使能开关
+    │       ├── 读 DBUtils 配置（阈值、周期）
+    │       └── 写电磁阀 + 水泵 + 风扇
+    │
+    ├──► WDT.feed()
+    │
+    └──► 定时 DBUtils.save(totalRunTime / totalSprayCount ...)
+```
+
+---
+
+## 10. 枚举常量定义 (driver/enum.py)
+
+### EV — 电磁阀类型
+| 值 | 含义 |
+|----|------|
+| WATER_INPUT_EV (1) | 进水电磁阀 |
+| WASTE_WATER_EV (2) | 废水电磁阀 |
+| WATER_SPRAY_EV_1 (3) | 喷雾电磁阀1 |
+| WATER_SPRAY_EV_2 (4) | 喷雾电磁阀2 |
+| WATER_SPRAY_EV_3 (5) | 喷雾电磁阀3 |
+
+### Switch — 开关状态
+| 值 | 含义 |
+|----|------|
+| OFF (0) | 关 |
+| ON (1) | 开 |
+
+### WaterMark — 水箱水位
+| 值 | 含义 |
+|----|------|
+| EMPTY (1) | 空 |
+| NORMAL (2) | 正常 |
+| FULL (3) | 满 |
+
+---
+
+## 11. 配置参数类型转换说明
+
+**核心问题：** DBUtils 基于 BTree 数据库，所有 key/value 都必须是字符串。
+
+**解决方案：**
+```
+读取时：DBUtils.get(key, default) → 得到字符串
+     │
+     ├── 整数参数：int(val)
+     ├── 浮点参数：float(val)
+     └── 布尔参数：自定义 _parseBool(val)
+
+保存时：DBUtils.save(key, str(value)) 统一转字符串
+```
+
+**`_parseBool` 函数（main.py）：**
 ```python
-while True:
-    sysTask()           # 更新运行时间计数
-    runFSM()            # 运行状态机
-    gc.collect()        # 每300次循环执行GC
-    setLEDArray()       # LED闪烁指示
-    saveData()          # 每3600次保存数据
-    utime.sleep_ms(1000)
-    loopCounter += 1
+def _parseBool(val):
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, str):
+        return val.lower() in ('true', '1', 'on', 'yes')
+    return bool(val)
 ```
 
-### 7.3 全局变量说明
+---
 
-| 变量 | 类型 | 用途 | 说明 |
-|------|------|------|------|
-| `bootTime` | int | 累计运行时间计算 | 被 `sysTask()` 不断更新，用于计算 `totalRunTime` |
-| `initialBootTime` | int | 本次开机运行时间计算 | 初始启动时间，不会被更新，用于计算 `runTime` |
-| `totalRunTime` | int | 累计运行时间 | 设备总运行时间（秒），定期保存到数据库 |
-| `loopCounter` | int | 循环计数器 | 用于定时执行任务（GC、LED闪烁、数据保存） |
-| `whenGotoConfigMode` | int | 配置模式超时 | 记录进入配置模式的时间，超时300秒后重启 |
-| `gotIpLast` / `gotIpNow` | str | IP地址检测 | 检测IP变化，用于广播通知 |
-| `LEDArrayColor` | tuple | LED颜色 | 当前LED显示颜色 |
+## 12. 无效值体系
+
+**统一约定：** 任何传感器读取失败或数据无效时，驱动层必须立即返回 `-9999`（float 类型）。
+
+| 驱动 | 无效值 | 设置时机 |
+|------|--------|----------|
+| BMP280 | -9999 | I²C 异常 / 校验失败 / var1==0 |
+| HDC1080 | -9999 | I²C 异常 / 转换失败 |
+| TDS | -9999.0 | 串口超时 / 校验失败 / 无响应 |
+| 其他统计参数 | -9999 | 硬件读取失败 |
+
+**防止使用过期数据：** 驱动必须在检测到失败时**立即**将结果置为 -9999，而不是保留上次成功的读数。这样业务层（FSM）不会基于陈旧数据做出错误判断。
 
 ---
 
-## 8. LED 状态指示
+## 13. WiFi 模块 (domain/wifi.py)
 
-| 颜色 | 状态 | 说明 |
-|------|------|------|
-| 红色 (255,0,0) | 启动中 | 系统初始化 |
-| 绿色 (0,255,0) | WiFi已连接 | 正常运行，IP获取成功 |
-| 蓝色 (0,0,255) | 配置模式 | AP模式等待配置 |
-| 紫色 (255,0,255) | WiFi断开 | Station模式连接失败 |
-| 白色 (255,255,255) | BSP初始化完成 | 硬件就绪 |
-| 闪烁 | 运行中 | 每2秒闪烁一次 |
+**功能：**
+- STA 模式：连接指定 SSID
+- AP 模式：热点 `IOT_2G`，IP `192.168.30.1`
+- 自动重连机制
+- IP 广播（UDP 广播到 LAN）
 
 ---
 
-## 9. 安全设计
+## 14. 版本历史
 
-### 9.1 认证机制
-- 所有敏感API需要 `devicepwd` 参数验证
-- 默认密码: `pengping`
-
-### 9.2 目录遍历防护
-```python
-if '..' in fileName:
-    return 'Not found', 404
-```
-
-### 9.3 看门狗机制
-- 超时时间: 60秒
-- 喂狗周期: 5秒
-- 防止系统死锁
-
-### 9.4 中文参数支持
-
-**问题**: Microdot框架的 `urldecode_str` 函数无法正确解码UTF-8多字节字符，导致中文参数传递时出现乱码。
-
-**解决方案**:
-1. **前端**: 使用 `encodeURIComponent()` 对中文参数进行URL编码
-   ```javascript
-   encodeURIComponent("灯光") → "%E7%81%AF%E5%85%89"
-   ```
-
-2. **后端**: 修改 `lib/microdot.py` 中的 `urldecode_str` 和 `urldecode_bytes` 函数，先将所有 `%XX` 转换为字节值，构建完整的字节数组，然后统一用 `decode('utf-8')` 解码
-
-**支持中文的参数**:
-- `sw1name`: 开关1名称
-- `sw2name`: 开关2名称
-- `devicename`: 设备名称
+| 版本号 | 日期 | 说明 |
+|--------|------|------|
+| 202606230001 | 2026-06-23 | 文档创建，记录基本架构 |
+| 202606230002 | 2026-06-23 | 增加 PWM 参数映射错误说明，修复风扇用 pwm1 的问题 |
+| 202606230003 | 2026-06-23 | 增加 DBUtils 新增方法说明、热插拔分析、I²C 通信距离 |
+| 202606240000 | 2026-06-24 | **全量刷新**：纠正 PWM 引脚映射表（PWM1=Pin10水泵, PWM2=Pin46风扇电源, PWM3=Pin9风扇转速）；重写系统架构图；补充 TDS 异步状态机设计；增加无效值体系说明；完善前端架构描述；补充 runTime/waterTDSThreshold 等新增参数；更新传感器热插拔支持说明 |
+| 202606250000 | 2026-06-25 | 二次重构 TDS 驱动为异步非阻塞（消除 Timer 回调中的 sleep）；修复 BMP280 get() 方法 var1==0 时未重置 T/P 的问题；修复 BMP280 getAltitude() 未检查无效压力；修复前端 nv() 函数处理 0.0 值；修正所有驱动在读取失败时立即置为 -9999 的行为 |
 
 ---
 
-## 10. 前端界面设计
+## 15. 待办事项 / Known Issues
 
-### 10.1 架构设计
-
-**模块化架构**:
-```
-index.html
-├── CONFIG模块      # 常量配置（选择器、API地址、单位等）
-├── UTILS模块       # 工具函数（格式化、JSON解析等）
-├── VIEW模块        # 视图层（工厂模式创建专用视图）
-├── CONTROLLER模块  # 控制器层（刷新控制器、事件控制器）
-└── App主模块       # 应用入口
-```
-
-**设计模式**:
-- **工厂模式**: 视图创建通过工厂函数实现，降低耦合度
-- **关注点分离**: 视图层与控制器层分离，便于维护
-
-### 10.2 功能模块（Tabs标签页）
-
-| 标签页 | 功能 |
-|--------|------|
-| 设备状态 | 设备名称、运行时间、传感器实时数据、温度/湿度图表 |
-| 参数设置 | 温度阈值、喷雾参数、PWM参数（4通道）、补水参数分组显示 |
-| 开关控制 | S1/S2开关控制及名称设置 |
-| 网络配置 | WiFi扫描、连接配置、设备名称/密码设置 |
-
-### 10.3 响应式布局
-
-| 屏幕宽度 | 显示列数 |
-|----------|----------|
-| < 600px | 1列（手机） |
-| 600px - 960px | 2列（平板） |
-| 960px - 1280px | 3列（桌面） |
-| >= 1280px | 4列（大屏） |
-
-**布局实现**: 使用CSS Grid配合媒体查询，参数分组显示在网格中。
-
-### 10.4 数据刷新机制
-- 定时器周期: 5秒
-- 自动刷新传感器数据
-- 图表数据缓存: 350条记录 (约30分钟)
-
-### 10.5 界面显示优化
-
-**动态颜色显示**:
-- **供水状态**: 可用时绿色，不可用时红色
-- **翅片温度**: >温度低阈值时红色，反之绿色
-- **水位状态**: 空=红色、正常=绿色、满=绿色
-
-**中文显示**:
-- 空调状态: ON→开, OFF→关
-- 开关状态: ON→开, OFF→关
-
----
-
-## 11. 线程设计
-
-| 线程 | 功能 | 栈大小 |
-|------|------|--------|
-| 主线程 | 状态机运行、LED控制、数据保存 | 默认 |
-| WebApp线程 | Web服务器运行 | 32KB |
-| broadcastIPInfo线程 | IP广播、WiFi状态监测 | 默认 |
-
----
-
-## 12. 错误处理
-
-### 12.1 传感器故障
-- 返回 `-9999` 表示传感器故障
-- 自动重试初始化硬件
-
-### 12.2 WiFi连接失败
-- 35秒超时后进入配置模式
-- 配置模式300秒超时后重启
-
-### 12.3 补水超时
-- 850秒超时后停止补水
-- 记录补水时间，防止频繁补水
-
-### 12.4 参数类型转换错误
-- 所有数值型参数在读取时进行类型转换
-- 设置参数时验证值有效性，避免空值导致的转换错误
-
----
-
-## 13. 性能优化
-
-### 13.1 内存管理
-- 每300次循环执行GC
-- 使用 `micropython.mem_info()` 监控内存
-
-### 13.2 状态机优化
-- 状态映射表替代if-else
-- 单例模式减少对象创建
-
-### 13.3 湿球温度计算优化
-- 二分法替代线性搜索
-- 预计算常量减少重复计算
-
----
-
-## 14. 扩展预留
-
-### 14.1 预留接口
-- PWM3/PWM4: 预留风扇控制
-- 喷雾电磁阀3: 预留第三个喷头
-- TDS传感器: 水质检测（已实现）
-- 光照度传感器: 预留luminance字段
-- PM2.5传感器: 预留pm25字段
-
-### 14.2 预留参数
-- modbusSlaveAddr: Modbus通信预留
-- modbusBadud: Modbus波特率预留
-
----
-
-## 15. 版本历史
-
-| 版本 | 日期 | 说明 |
-|------|------|------|
-| 202606240000 | 2026-06-24 | 更新TDS驱动、传感器数据类、WaterProcessFSM、前端优化 |
-| 202606170000 | 2026-06-17 | 更新全局变量设计、前端架构、参数分组、中文支持 |
-| 202606141506 | 2026-06-14 | 初始版本 |
-
----
-
-## 16. 参考资料
-
-- [MicroPython 官方文档](https://docs.micropython.org/)
-- [ESP32-S3 技术参考手册](https://www.espressif.com/)
-- [Microdot Web框架](https://github.com/miguelgrinberg/microdot)
-- [HDC1080 数据手册](https://www.ti.com/)
-- [BMP280 数据手册](https://www.bosch-sensortec.com/)
-- [TDS传感器协议文档](https://www.dfrobot.com/)
+| # | 描述 | 优先级 |
+|---|------|--------|
+| 1 | PWM4 通道硬件未接线，配置参数保留但无物理作用 | 低 |
+| 2 | boot.py 当前为空，可考虑启用 WeBREPL | 低 |
+| 3 | HDC1080 无硬件 CRC 校验，数据正确性依赖 I²C ACK | 中 |
+| 4 | BMP280 和 HDC1080 共用同一组 I²C 引脚，热插拔会相互影响 | 中 |
+| 5 | main.py status handler 中参数类型转换逻辑较分散，可考虑统一封装 | 低 |
+| 6 | 无 OTA 更新能力 | 低 |

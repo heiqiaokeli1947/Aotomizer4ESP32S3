@@ -82,7 +82,9 @@ class BMP280():
         var1 = (((self.dig_P3*((var1>>2)*(var1>>2))>>13)>>3) + (((self.dig_P2) * var1)>>1))>>18
         var1 = ((32768+var1)*self.dig_P1)>>15
         if var1 == 0:
-            return [-9999, -9999] # avoid exception caused by division by zero
+            self.T = -9999
+            self.P = -9999
+            return [-9999, -9999]
         adc_P = (self.getReg(0xF7)<<12) + (self.getReg(0xF8)<<4) + (self.getReg(0xF9)>>4)
         p=((1048576-adc_P)-(var2>>12))*3125
         if p < 0x80000000:
@@ -121,8 +123,11 @@ class BMP280():
         try:
             if not self.hardWareReady:
                 self.initHardware()
-                
-            value = 44330*(1-(self.getPress()/101325)**(1/5.255))
+
+            press = self.getPress()
+            if press == -9999:
+                return -9999
+            value = 44330*(1-(press/101325)**(1/5.255))
             return round(value,2)
         except (OSError,TypeError):
             self.hardWareReady = False
