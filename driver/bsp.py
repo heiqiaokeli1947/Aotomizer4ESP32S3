@@ -99,7 +99,14 @@ class BSP:
 
     def setConfig(self, config):
         self.config = config
-        self.initHW()
+        # PWM 对象仅构造一次；参数变更只原地更新 freq/duty——
+        # 原实现每次保存参数都经 initHW() 重建 3 个 PWM 对象（重复构造-丢弃循环
+        # 累积待 GC 的 PWM 对象与硬件通道重绑定开销），且运行中重建会让
+        # 水泵/风扇输出瞬间毛刺（2026-09-21 修复）
+        if getattr(self, "_pwmReady", False):
+            self.updatePWM()
+        else:
+            self.initHW()
 
     def initHW(self):
         log("init pwm...")
@@ -107,6 +114,16 @@ class BSP:
         self.__fanSpeed = 0
         self.__fan1PwmPin = PWM(Pin(46),freq=int(self.config["pwm2freq"]), duty=int(self.config["pwm2default"]))
         self.__fan2PwmPin = PWM(Pin(9),freq=int(self.config["pwm3freq"]), duty=int(self.config["pwm3default"]))
+        self._pwmReady = True
+
+    def updatePWM(self):
+        # 已构造的 PWM 仅更新频率/占空比，不重建对象
+        self.__pwmWaterBump.freq(int(self.config["pwm1freq"]))
+        self.__pwmWaterBump.duty(int(self.config["pwm1default"]))
+        self.__fan1PwmPin.freq(int(self.config["pwm2freq"]))
+        self.__fan1PwmPin.duty(int(self.config["pwm2default"]))
+        self.__fan2PwmPin.freq(int(self.config["pwm3freq"]))
+        self.__fan2PwmPin.duty(int(self.config["pwm3default"]))
 
     def setLEDArray(self, color):
         for i in range(1):

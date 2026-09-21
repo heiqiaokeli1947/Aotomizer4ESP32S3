@@ -123,13 +123,17 @@ Aotomizer4ESP32S3/
 | PWM3 | GPIO9 | 风扇转速 | pwm3freq, pwm3min, pwm3max, pwm3default | 风扇转速精细调节 |
 | PWM4 | 预留 | - | pwm4freq, pwm4min, pwm4max, pwm4default | 保留配置接口，硬件未接入 |
 
-### 3.3 PWM 初始化代码位置
-`driver/bsp.py:103-107`：
+### 3.3 PWM 初始化与参数更新（2026-09-21 修复内存泄漏）
+`driver/bsp.py`：PWM 对象**仅在首次 `setConfig()` 时构造**（`initHW()`），此后参数变更走 `updatePWM()` 原地更新 `freq()/duty()`，不再重建对象：
 ```python
-self.__pwmWaterBump = PWM(Pin(10), freq=int(self.config["pwm1freq"]), duty=int(self.config["pwm1default"]))
-self.__fan1PwmPin = PWM(Pin(46), freq=int(self.config["pwm2freq"]), duty=int(self.config["pwm2default"]))
-self.__fan2PwmPin = PWM(Pin(9), freq=int(self.config["pwm3freq"]), duty=int(self.config["pwm3default"]))
+# initHW()：首次构造（bsp.py:111-117）
+self.__pwmWaterBump = PWM(Pin(10),freq=int(self.config["pwm1freq"]), duty=int(self.config["pwm1default"]))
+self.__fan1PwmPin = PWM(Pin(46),freq=int(self.config["pwm2freq"]), duty=int(self.config["pwm2default"]))
+self.__fan2PwmPin = PWM(Pin(9),freq=int(self.config["pwm3freq"]), duty=int(self.config["pwm3default"]))
+
+# updatePWM()：参数变更原地更新（bsp.py:119-126），不重建对象
 ```
+原实现 `setConfig()` 每次都调用 `initHW()` 重建 3 个 PWM 对象——Web 保存一次参数即触发一次重复构造-丢弃循环（累积待 GC 的 PWM 对象与硬件通道重绑定开销），且运行中重建导致水泵/风扇输出瞬间毛刺，已修复。
 
 ---
 
@@ -955,6 +959,7 @@ def _parseBool(val):
 | 202609210008 | 2026-09-21 | **修复 runTime/totalRunTime 两个边界 bug（NTP 临界检查发现）**：NTP 对时本身不影响二者（RTC 跳变不动 ticks 时基，Web 线程并发读也安全），但发现：① `runTime` 原 = `ticks_diff(now, bootTickMs)//1000`——差值即开机时长，超过 `ticks_diff` 安全窗口（2^29ms ≈ 6.21 天）后变负数，12.42 天回绕后重新计数（长期运行呈锯齿错误）；② `totalRunTime` 每轮 `//1000` 整除丢弃毫秒余数且每轮刷新起点，长期累计偏慢 2~9%。改为**毫秒级累计式**：主循环每轮对 `runMs`/`totalRunTimeMs` 精确累加 `ticks_diff`（每轮间隔约 1s，恒在安全窗口内），`/status` 输出与落盘时才 `//1000` 换算秒——DB 存储格式不变（秒字符串），老数据兼容；13.3 节同步修正安全窗口表述 |
 | 202609210009 | 2026-09-21 | 小修两处：① 修正 AotomizerFSM 水不可用日志拼写 `Water inavailable` → `Water unavailable`；② bsp.py 实例化 TDS 时显式传入 `baudrate=9600`（此前依赖驱动默认值 9600 隐式生效，行为不变，显式化防驱动默认值变更导致波特率静默漂移）；6.3 节括号注释同步更新 |
 | 202609210010 | 2026-09-21 | **FSM 提频至 10Hz + 时间驱动解耦**：主循环周期 1s → 100ms（`sleep_ms(100)`），FSM 事件响应延迟平均 0.5s → 50ms；全部定时逻辑由"轮数取模"改为**真实时间判断**（RTC 时基 ticks_ms 单调读数，`ticks_diff >= 阈值`）——main.py 的 GC 5min/LED 2s/落盘 1h、两个 FSM 的每小时统计落盘均改为时间边沿触发（原 `% 3600 == 0` 在 10Hz 下同秒重复落盘 10 次）；两个 FSM 内部计时转毫秒（`runTimeCounterMs`，spray1/2/3TimeOut、sprayPeriod、waterFill/DischargeTimeOut、minAddWaterInterval 读取处 ×1000，config 单位不变），喷雾时长控制精度 ±1s → ±0.1s；状态日志按时间节流每 1s 一次防 10Hz 刷屏；删除仅赋值未使用的 `lastOverTempTime`；`loopCounter` 退役为日志序号；13.3 节新增「时间驱动原则」；传感器采集保持 Timer(1) 1s 周期不变 |
+| 202609210011 | 2026-09-21 | **修复 PWM 参数变更内存泄漏（bsp.setConfig 重复重建硬件对象）**：原 `setConfig()` 每次调用都执行 `initHW()` 重建 3 个 PWM 对象——Web 端每次保存参数（/status?mode=set）都触发一轮"构造-丢弃"，累积待 GC 的 PWM 对象与硬件通道重绑定开销，且设备运行中（如正在喷雾/风扇转动时）重建会让 PWM 输出瞬间毛刺；改为 PWM 对象仅首次构造（`_pwmReady` 标志），参数变更走新增的 `updatePWM()` 原地更新 `freq()/duty()`；同步排查其余内存面（Timer 硬件 id 复用覆盖语义、DBUtils 线程锁+closeDB、TDS bytearray 复用、sensorData 固定标量字段）均无泄漏；3.3 节同步更新 |
 
 ---
 
