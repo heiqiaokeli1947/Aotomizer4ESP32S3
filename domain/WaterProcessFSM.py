@@ -16,9 +16,13 @@ class FSM:
         self.bspInstance = bspInstance
         self.config = config
         self.status = STATUS.INIT
-        # runTimeCounterMs 为开机以来的单调毫秒数（RTC 时基 ticks_ms 节拍差），
-        # 与墙钟解耦（NTP 跳变不影响），且与 FSM 轮询频率解耦（10Hz 节拍，2026-09-21）
-        self.bootTickMs = utime.ticks_ms()
+        # runTimeCounterMs 为开机以来的单调毫秒数：run() 内逐轮累加 ticks_diff
+        # （每轮间隔约 100ms，恒在 ticks_diff 安全窗口 < 2^29ms 内），与墙钟解耦
+        # （NTP 跳变不影响）、与轮询频率解耦（10Hz 节拍）。
+        # 不可用 ticks_diff(now, bootTickMs) 对"距开机时长"直接差值——超过 6.21 天后
+        # 差值越过安全窗口变负，会导致状态日志/每小时落盘停摆、进水/排水超时永不触发
+        # （执行器卡死），与 main.py runMs 逐轮累计同模式
+        self.lastRunTick = utime.ticks_ms()
         self.runTimeCounterMs = 0
         self.lastLogMs = 0   # 状态日志节流起点（每 1s 打印一次）
         self.lastSaveMs = 0  # "每小时落盘一次"时间边沿判定起点
@@ -43,10 +47,12 @@ class FSM:
         self.lastAddWaterTime = 0
 
         self.airConditionerStatus = 0
-        self.inWaterTDS = 0
-        self.inWaterTemp = 0
-        self.waterTankTDS = 0
-        self.waterTankTemp = 0
+        # 传感器失败值统一 -9999（硬约束）：首个 run() tick 前 Web 查询 /status
+        # 不再显示看似有效的 0 读数（BE-1 修复）
+        self.inWaterTDS = -9999
+        self.inWaterTemp = -9999
+        self.waterTankTDS = -9999
+        self.waterTankTemp = -9999
         self.waterAvailable = False
         
 
@@ -73,9 +79,11 @@ class FSM:
         db.save({"totalAddWaterCount":str(self.totalAddWaterCount)})
 
     def reloadConfig(self):
-        self.minAddWaterInterval = int(self.config["minAddWaterInterval"])
-        self.waterFillTimeOut = int(self.config["waterFillTimeOut"])
-        self.waterDischargeTimeOut = int(self.config["waterDischargeTimeOut"])
+        # 单位与 __init__ 保持一致：config 秒 → 内部毫秒（P0-1 修复：reload 原漏 ×1000，
+        # Web 保存任意配置后排水 60ms/补水 850ms/补水间隔 2400ms，排水-进水阀高频空转循环）
+        self.minAddWaterInterval = int(self.config["minAddWaterInterval"]) * 1000
+        self.waterFillTimeOut = int(self.config["waterFillTimeOut"]) * 1000
+        self.waterDischargeTimeOut = int(self.config["waterDischargeTimeOut"]) * 1000
         self.waterTDSThreshold = int(self.config["waterTDSThreshold"])
 
 
@@ -168,7 +176,10 @@ class FSM:
         return
     
     def run(self):
-        self.runTimeCounterMs = utime.ticks_diff(utime.ticks_ms(), self.bootTickMs)
+        # 逐轮累计单调毫秒（P0-2）：不与开机快照做差，规避 ticks_diff 6.21 天安全窗口
+        nowTick = utime.ticks_ms()
+        self.runTimeCounterMs += utime.ticks_diff(nowTick, self.lastRunTick)
+        self.lastRunTick = nowTick
         self.readSystemSensor()
         # 状态日志节流为每 1s 一次（10Hz 轮询，避免日志刷屏）
         if self.runTimeCounterMs - self.lastLogMs >= 1000:

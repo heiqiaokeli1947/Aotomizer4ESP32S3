@@ -56,11 +56,31 @@ def connectToWifi(ssid, pwd):
 
 
 def getStationIP():
+    # 未连接时返回 None（P1-4 修复：原返回错误字符串 "Station not active or not connected."
+    # 会被 truthy 判断误当有效 IP，导致断线时仍以非法超长 SSID 反复启动 AP、LED 误报在线）
     wlan = network.WLAN(network.STA_IF)
     if wlan.active() and wlan.isconnected():
         return wlan.ifconfig()[0]
     else:
-        return "Station not active or not connected."
+        return None
+
+
+def startReconnect(ssid, pwd):
+    # 非阻塞发起重连（P1-7）：wlan.connect() 异步执行立即返回，由主循环每 30s 检查
+    # isConnected() 确认结果。断线期间周期调用安全（连接进行中重复 connect 会重启
+    # 连接流程，无副作用）；异常全部捕获，绝不阻塞/拖垮主循环。
+    try:
+        wlan = network.WLAN(network.STA_IF)
+        if not wlan.active():
+            wlan.active(True)
+        if not wlan.isconnected():
+            wlan.connect(ssid, pwd)
+            log("wifi reconnect attempt:{}".format(ssid))
+        return True
+    except Exception as e:
+        sys.print_exception(e)
+        log('wifi reconnect exception.')
+        return False
 
 
 def testWifiConnect(ssid, pwd):

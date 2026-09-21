@@ -131,7 +131,9 @@ self.__pwmWaterBump = PWM(Pin(10),freq=int(self.config["pwm1freq"]), duty=int(se
 self.__fan1PwmPin = PWM(Pin(46),freq=int(self.config["pwm2freq"]), duty=int(self.config["pwm2default"]))
 self.__fan2PwmPin = PWM(Pin(9),freq=int(self.config["pwm3freq"]), duty=int(self.config["pwm3default"]))
 
-# updatePWM()：参数变更原地更新（bsp.py:119-126），不重建对象
+# updatePWM()：参数变更原地更新（bsp.py:119-127），不重建对象；泵（pwm1）由 FSM
+# 独占控制故被跳过（P1-5：运行中保存配置不得把泵 duty 强制回 pwm1default(0)，
+# 否则正在进行的喷雾相位静默停泵），pwm1 参数变更下次上电 initHW() 时生效
 ```
 原实现 `setConfig()` 每次都调用 `initHW()` 重建 3 个 PWM 对象——Web 保存一次参数即触发一次重复构造-丢弃循环（累积待 GC 的 PWM 对象与硬件通道重绑定开销），且运行中重建导致水泵/风扇输出瞬间毛刺，已修复。
 
@@ -223,6 +225,7 @@ boot → WiFi 连接 → 传感器初始化 → Timer(1) 启动（1秒周期）
    - GC + 内存报告：每 5 分钟
    - 状态 LED 翻转：每 2 秒（保持原节奏）
    - 统计落盘：每 1 小时
+   - WiFi 断线重连：每 30 秒（normal 模式下检查 `isConnected()`，断线则调用 `wifi.startReconnect()` 非阻塞发起重连，`wlan.connect()` 异步执行不阻塞主循环）
    - `loopCounter` 仅保留为 feedDog 日志序号，不再参与定时判断
 
 **看门狗机制（活性检测式喂狗，2026-09-21 修复 R1）：**
@@ -266,7 +269,7 @@ boot → WiFi 连接 → 传感器初始化 → Timer(1) 启动（1秒周期）
 | waterDischargeTimeOut / waterFillTimeOut | int | 排水/进水超时（秒） |
 | fineHThreshold / fineLThreshold | float | 翅片温度高/低阈值（℃） |
 | fineTempThreshold | float | 翅片温度临界阈值（℃） |
-| waterTDSThreshold | int | 水箱 TDS 阈值（ppm，超过则排水） |
+| waterTDSThreshold | int | 水箱 TDS 阈值（ppm）——仅用于喷雾水质门控（≥ 阈值禁止喷雾）；无换水硬件，不触发排水 |
 | modbusSlaveAddr / modbusBadud | int | Modbus 从机地址 / 波特率 |
 | latitude / longitude / altitude | float | 地理位置 |
 | wifiname / wifipwd | str | 目标 WiFi 名称 / 密码 |
@@ -309,7 +312,7 @@ boot → WiFi 连接 → 传感器初始化 → Timer(1) 启动（1秒周期）
 
 **喷雾逻辑核心（与代码一致，2026-09-21 刷新）：**
 - 前置条件：空调运行中（霍尔传感器 `airConditionerStatus == ON`）且水箱有水（`waterAvailable`）
-- 启动喷雾：空调开启 且 翅片温度 > `fineLThreshold` → 进入 OVER_TEMP 并计算时长
+- 启动喷雾：空调开启 且 翅片温度 > `fineLThreshold` 且 水箱非空（`waterMark != EMPTY`，P1-8 防空水箱水泵干转）→ 进入 OVER_TEMP 并计算时长
 - 停止/不喷雾：空调关闭、水箱无水或翅片温度 ≤ `fineLThreshold` → 回 READY
 - **基准时长线性+偏置**（替代原阶梯式 if/elif）：翅片温度 = `fineLThreshold` → `minSparyTime`，达到 `fineHThreshold` → `maxSparyTime`，中间线性过渡、区间外钳位（`fineHThreshold` 由此参与控制；配置异常即高温阈值 ≤ 低温阈值时按最短时长兜底）
 - **三路配比**：阀门安装位置上→下 = 1/2/3，阀门1 = 100%、阀门2 = 70%、阀门3 = 40%（不足 1 秒按 1 秒兜底），三路依次轮流喷雾
@@ -332,8 +335,8 @@ boot → WiFi 连接 → 传感器初始化 → Timer(1) 启动（1秒周期）
 
 **`run()` 执行逻辑（主循环 10Hz 每轮调用，2026-09-21 更正——入口为 `run()` 而非 tick()；计时已转毫秒）：**
 ```
-1. 更新 runTimeCounterMs——开机以来的单调毫秒数（RTC 时基 ticks_ms 节拍差；
-   与墙钟解耦防 NTP 跳变，且与轮询频率解耦，见 13.3）
+1. 更新 runTimeCounterMs——开机以来的单调毫秒数，run() 内**逐轮累加** ticks_diff
+   （每轮间隔约 100ms 恒在安全窗口内；不与开机快照做差，规避 6.21 天回绕，见 13.3）
 2. 读取翅片温度/湿度/湿球温度与空调霍尔状态
 3. 状态日志按时间节流（每 1s 打印一次，防 10Hz 刷屏）；距上次落盘 ≥ 1 小时（时间边沿触发）落盘 totalSprayCount
 4. 按状态分发表执行当前状态动作（状态迁移见上表）
@@ -361,8 +364,9 @@ boot → WiFi 连接 → 传感器初始化 → Timer(1) 启动（1秒周期）
 - 补水累计 → 更新 `totalAddWaterCount`（两次补水间隔受 `minAddWaterInterval` 限制）
 
 **排水逻辑（计时基于 runTimeCounterMs 单调毫秒，见 13.3）：**
-- 当 TDS 超过阈值 `waterTDSThreshold` → 自动排水补水
+- 排水仅作为低水位补水的第一步（先排空管路残留再进水），由水位 `waterMark` 触发
 - 排水时长由 `waterDischargeTimeOut` 控制，结束后转入进水
+- **TDS 与排水无关（F4 决策 2026-09-22）**：无换水硬件，TDS 超阈值不触发任何排水/换水动作；`waterTDSThreshold` 唯一作用是喷雾水质门控（见 5.3 喷雾前置条件）
 
 ### 5.5 sensorData (domain/sensorData.py) — 全局数据容器
 
@@ -617,6 +621,7 @@ thd = float(val)
 
 **注意事项：**
 - `devicepwd` 参数必须正确
+- **数值参数先整体校验后应用（R4，2026-09-22）**：`validateSetArgs()` 对全部数值参数做范围校验（温度阈值 -20~120℃、PWM 频率 1~78125Hz、占空比 0~100%、喷雾时长 1~3600s、sprayPeriod 1~86400s、补水/排水超时、TDS 阈值 0~10000 等）与跨字段一致性校验（`fineL<fineH`、`minSparyTime<maxSparyTime`、各通道 `pwmNmin<pwmNmax`，跨字段以"新值优先、缺省取当前配置值"的有效值组合判断）——任一不合法返回 `errCode=-1` 及逐项错误消息，**不应用任何修改**；`waterTDSThreshold` 的 `----`/空串按"未修改"跳过（与赋值逻辑语义一致）
 - 所有 PWM 通道参数需同时下发（pwm1~pwm4 的 freq/min/max/default）
 - 参数值通过 `urllib.parse.unquote` 解码，支持 UTF-8 中文
 - 布尔值通过自定义 `_parseBool` 函数解析（支持 true/false/0/1/on/off）
@@ -919,8 +924,8 @@ def _parseBool(val):
 | main.py 主循环 | `lastSysTick` → `runMs` | 本次开机运行毫秒累计，输出时换算秒（/status 返回，见 7.1） |
 | main.py sysTask | `lastSysTick` → `totalRunTimeMs` | 跨开机累计运行毫秒（DB 存秒），每小时落盘 |
 | main.py 主循环 | `lastGcTick` / `lastLedTick` / `lastMainSaveTick` | GC 5min、LED 翻转 2s、落盘 1h——时间驱动定时任务（见 5.1） |
-| AotomizerFSM | `bootTickMs` → `runTimeCounterMs` | 喷雾延时判定（spray1/2/3TimeOut、sprayPeriod，均 ms）与每小时统计落盘 |
-| WaterProcessFSM | `bootTickMs` → `runTimeCounterMs` | 进水/排水超时、`minAddWaterInterval` 补水间隔判定（均 ms） |
+| AotomizerFSM | `lastRunTick` → `runTimeCounterMs`（逐轮累计） | 喷雾延时判定（spray1/2/3TimeOut、sprayPeriod，均 ms）与每小时统计落盘 |
+| WaterProcessFSM | `lastRunTick` → `runTimeCounterMs`（逐轮累计） | 进水/排水超时、`minAddWaterInterval` 补水间隔判定（均 ms） |
 | NTP 调度 | `ntpLastTryTick` | 首次校时成功前的 60s 重试节流（见 13.1） |
 
 **墙钟使用点：**
@@ -934,6 +939,7 @@ def _parseBool(val):
 **时间驱动原则（2026-09-21 确立，随 FSM 提频至 10Hz 落地）：**
 - 所有周期/定时行为必须基于"距上次 ≥ 阈值"的时间差判断，**禁止用轮询轮数取模**（`loopCounter % N`）——轮数驱动使定时行为与轮询频率耦合，提频后周期自动缩短且同秒重复触发（如原 `% 3600 == 0` 落盘在 10Hz 下同秒重复 10 次）
 - FSM 轮询频率（10Hz）只影响**事件响应延迟**，不影响任何时长语义；配置项单位保持秒（用户可读），读取处统一 ×1000 转 ms
+- **长寿命"距开机时长"值禁止对开机快照做差**（2026-09-22 补充）：`ticks_diff(now, bootTickMs)` 一旦真实间隔超过 2^29ms（≈6.21 天）即越窗变负——必须像 `runMs`/`runTimeCounterMs` 一样**逐轮累加每轮小间隔**；同理，任何秒级配置转 ms 的 ×1000 必须在 `__init__` 与 `reloadConfig()` 两处保持一致（202609220001 教训）
 
 > **背景教训：** NTP 对时使 `utime.time()` 从"1970 起算的开机秒数"向前跳变约 17 亿秒，任何基于墙钟差值的时长判定都会被跳变破坏——runTime 突变巨大值（13.1 连带修复）、FSM 延时立即超时（202609210007 修复）均源于此。新代码凡涉及时长判定必须走单调节拍。
 
@@ -960,6 +966,11 @@ def _parseBool(val):
 | 202609210009 | 2026-09-21 | 小修两处：① 修正 AotomizerFSM 水不可用日志拼写 `Water inavailable` → `Water unavailable`；② bsp.py 实例化 TDS 时显式传入 `baudrate=9600`（此前依赖驱动默认值 9600 隐式生效，行为不变，显式化防驱动默认值变更导致波特率静默漂移）；6.3 节括号注释同步更新 |
 | 202609210010 | 2026-09-21 | **FSM 提频至 10Hz + 时间驱动解耦**：主循环周期 1s → 100ms（`sleep_ms(100)`），FSM 事件响应延迟平均 0.5s → 50ms；全部定时逻辑由"轮数取模"改为**真实时间判断**（RTC 时基 ticks_ms 单调读数，`ticks_diff >= 阈值`）——main.py 的 GC 5min/LED 2s/落盘 1h、两个 FSM 的每小时统计落盘均改为时间边沿触发（原 `% 3600 == 0` 在 10Hz 下同秒重复落盘 10 次）；两个 FSM 内部计时转毫秒（`runTimeCounterMs`，spray1/2/3TimeOut、sprayPeriod、waterFill/DischargeTimeOut、minAddWaterInterval 读取处 ×1000，config 单位不变），喷雾时长控制精度 ±1s → ±0.1s；状态日志按时间节流每 1s 一次防 10Hz 刷屏；删除仅赋值未使用的 `lastOverTempTime`；`loopCounter` 退役为日志序号；13.3 节新增「时间驱动原则」；传感器采集保持 Timer(1) 1s 周期不变 |
 | 202609210011 | 2026-09-21 | **修复 PWM 参数变更内存泄漏（bsp.setConfig 重复重建硬件对象）**：原 `setConfig()` 每次调用都执行 `initHW()` 重建 3 个 PWM 对象——Web 端每次保存参数（/status?mode=set）都触发一轮"构造-丢弃"，累积待 GC 的 PWM 对象与硬件通道重绑定开销，且设备运行中（如正在喷雾/风扇转动时）重建会让 PWM 输出瞬间毛刺；改为 PWM 对象仅首次构造（`_pwmReady` 标志），参数变更走新增的 `updatePWM()` 原地更新 `freq()/duty()`；同步排查其余内存面（Timer 硬件 id 复用覆盖语义、DBUtils 线程锁+closeDB、TDS bytearray 复用、sensorData 固定标量字段）均无泄漏；3.3 节同步更新 |
+| 202609220001 | 2026-09-22 | **全项目审查后修复 4 项（P0×2 + P1×2）**：① P0-1 reloadConfig 单位回归——AotomizerFSM `sprayPeriod` 与 WaterProcessFSM `minAddWaterInterval/waterFillTimeOut/waterDischargeTimeOut` 共 4 处补回 `×1000`（原 Web 保存任意配置后 sprayPeriod 变 40ms 致近乎连续喷雾、排水/进水阀 60ms/850ms 高频空转循环）；② P0-2 FSM 节拍越窗——两 FSM `runTimeCounterMs` 原基于 `ticks_diff(now, bootTickMs)`，连续运行超 6.21 天后变负（状态日志/每小时落盘停摆、极端时序下喷雾/排水超时永不触发致执行器卡死），改为 run() 内逐轮累加 `lastRunTick` 小间隔（与 main.py runMs 同模式），13.3 补充"长寿命距开机值禁止对开机快照做差"原则；③ P1-4 `wifi.getStationIP()` 失败由返回错误字符串改为返回 `None`（原被 truthy 误判为有效 IP，断线时以非法超长 SSID 反复启 AP、LED 误报在线），/setwifi 返回值兜底空串；④ P1-7 新增 WiFi 断线应用层重连——wifi.py 新增 `startReconnect()`（wlan.connect 异步非阻塞），主循环 normal 模式每 30s 时间驱动检查 `isConnected()`、断线即发起重连，不影响 10Hz 节拍与喂狗 |
+| 202609220002 | 2026-09-22 | **审查后修复 3 项（P1×2 + R4）**：① P1-8 防空水箱干转——AotomizerFSM 原只查 TDS 水质不查水位，水箱空时仍照常喷雾致水泵干转；`readSystemSensor()` 每轮刷新 `waterMark`（bsp.getWaterTankStatus），`checkOverTemperature()` 增加 `waterMark == EMPTY` 前置拦截（回 READY、日志告警），等待 WaterProcessFSM 补水；② P1-5 保存配置打断喷雾——`bsp.updatePWM()` 原无条件把泵 duty 强制回 `pwm1default`(0)，运行中保存任意配置即致当前喷雾相位静默停泵；改为跳过泵（泵由 FSM 独占控制），pwm1 参数变更下次上电生效；③ R4 参数校验——`main.py` 新增 `validateSetArgs()`，`/status?mode=set` 先整体校验后应用：数值范围（温度阈值/PWM 频率占空比/喷雾与补水时长/TDS 阈值/Modbus）+ 跨字段一致性（`fineL<fineH`、`minSparyTime<maxSparyTime`、`pwmNmin<pwmNmax`，有效值组合兼容部分更新）+ NaN/非数字防御，任一不合法返回 `errCode=-1` 与逐项错误、不应用任何修改（15 节 R4 行删除） |
+| 202609220003 | 2026-09-22 | **F4 业务决策落地（仅文档修正，无代码变更）**：确认当前无换水硬件，TDS 超阈值不做换水——代码复核证实 WaterProcessFSM 排水/进水循环仅由水位 `waterMark` 触发（`waterTDSThreshold` 仅加载与显示，从未参与控制），TDS 阈值唯一作用是 AotomizerFSM 喷雾水质门控（≥ 阈值禁止喷雾）；修正文档两处错误描述（2.2 配置表"超过则排水"、5.4"当 TDS 超过阈值→自动排水补水"），15 节 F4 行删除 |
+| 202609220004 | 2026-09-22 | **复审后修复前端 2 项（FE-1/FE-9）**：① FE-1 契约断裂——`handleResponse()` 原把 `errCode='-1'` 硬编码为"密码错误!"且预置文案优先，R4 校验拒绝返回的具体原因（msg）被丢弃误导用户；改为失败时服务端 `msg` 优先（无 msg 才回退预置文案），成功时仍保留预置中文文案，单点修复覆盖全部 5 个保存入口；② FE-9 无效温度误着色——模型层无效值为数字 -9999（`nv(v, invalid)`），视图判断 `!== '----'` 恒真致 -9999 被染成正常绿色；着色条件补充 `!== INVALID_VALUE` 排除。前端其余发现（SSID XSS、-9999 真值误判"可用"、轮询无超时、编辑被覆盖、URL 未编码等）为已知建议级事项 |
+| 202609220005 | 2026-09-22 | **无效值体系专项检查后修复 2 项（BE-1/BE-2）**：① BE-1——两个 FSM 的传感器显示副本（AotomizerFSM `finTemp/humity/wetBulbTemp`、WaterProcessFSM `inWaterTDS/inWaterTemp/waterTankTDS/waterTankTemp`）初始化为 0，违反"失败值必须立即置 -9999"硬约束，开机后首个 run() tick（<100ms）内 Web 查询会显示看似有效的 0 读数；改为 init -9999；② BE-2——`bsp._applyTdsResult()` 失败时打出 `-999.9 ℃, -9999.0 ppm` 噪声日志；改为双通道失败合并单条 WARN、单通道失败仅 WARN 失败通道、正常通道保持完整日志。检查同时确认：sensorData 17 字段/-9999 驱动失败路径/AACOps 湿球入口保护/getWaterAvailableStatus 判断/JSON 透传均健康，int 与 float 型 -9999 在 `==` 与 JSON 序列化下等价无害 |
 
 ---
 
@@ -973,8 +984,6 @@ def _parseBool(val):
 |---|------|--------|
 | 1 | F2+R7 安全开关未接入：BSP 已提供 `isSysEnabled()/isSprayEnabled()`，但 FSM 从未调用——系统使能断开时设备仍会喷雾（需先确认断开时正在喷雾的处理语义） | 高 |
 | 2 | F5 双 FSM 互斥：AotomizerFSM 与 WaterProcessFSM 可能同时操作电磁阀/水泵，冲突时序未定义 | 高 |
-| 3 | R4 Web 参数零校验：`/status?mode=set` 对数值无范围校验（如 min>max、频率 0），异常值可致运行异常 | 高 |
-| 4 | F4 TDS 自动换水策略需业务确认：现按 `waterTDSThreshold` 触发排水补水，阈值与频率待定 | 中 |
 | 5 | F3 湿度/湿球温度未参与喷雾控制（已采集并显示，控制仅用翅片温度） | 中 |
 
 **健壮性（建议）：**

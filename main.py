@@ -330,6 +330,13 @@ def handler(request):
 
         return ujson.dumps(res)
     elif "mode" in request.args and request.args["mode"] == "set":
+        # R4：先整体校验数值参数，全部合法才应用（防止单个异常值破坏运行逻辑）
+        errors = validateSetArgs(request.args)
+        if errors:
+            res = {"errCode": "-1", "msg": "invalid params: " + "; ".join(errors)}
+            log("[WARN]set config rejected:{}".format(res["msg"]))
+            return ujson.dumps(res)
+
         res = {"errCode": "0", "msg": "set finish."}
 
         # 温度阈值参数
@@ -485,6 +492,73 @@ def maskArgs(args):
             if k not in ("pwd", "devicepwd", "APPwd")}
 
 
+def validateSetArgs(args):
+    # R4：/status?mode=set 数值参数范围校验（只读不改）。返回错误消息列表，空列表=全部合法。
+    # 跨字段校验（如 min<max）用"新值优先、缺省取当前配置值"的有效值组合，兼容部分更新；
+    # 全部通过后才由赋值逻辑统一应用，避免"改了一半校验失败"造成配置不一致。
+    errors = []
+
+    def checkNum(key, conv, lo, hi, skipPlaceholder=False):
+        if key not in args:
+            return
+        raw = args[key]
+        # waterTDSThreshold 的 "----" 是前端"未修改"占位符（与赋值逻辑的跳过语义一致）
+        if skipPlaceholder and raw in ("", "----"):
+            return
+        try:
+            v = conv(raw)
+            if v != v:  # NaN 防御
+                errors.append("{} must be a number".format(key))
+            elif v < lo or v > hi:
+                errors.append("{} out of range[{},{}]".format(key, lo, hi))
+        except (ValueError, TypeError):
+            errors.append("{} must be a number".format(key))
+
+    def effVal(key, conv):
+        if key in args:
+            return conv(args[key])
+        return conv(systemConfig[key])
+
+    def checkPair(a, b, conv):
+        # 校验有效值组合下 a < b；当前配置值类型异常时跳过（单边范围已由 checkNum 保证）
+        try:
+            if effVal(a, conv) >= effVal(b, conv):
+                errors.append("{} must be less than {}".format(a, b))
+        except (ValueError, TypeError, KeyError):
+            pass
+
+    # 温度阈值（℃）与喷雾时长（s）
+    checkNum("fineLThreshold", float, -20, 120)
+    checkNum("fineHThreshold", float, -20, 120)
+    checkPair("fineLThreshold", "fineHThreshold", float)
+    checkNum("minSparyTime", int, 1, 3600)
+    checkNum("maxSparyTime", int, 1, 3600)
+    checkPair("minSparyTime", "maxSparyTime", int)
+    checkNum("sprayPeriod", int, 1, 86400)
+
+    # PWM1~4：频率（Hz）与占空比百分数，含 min<max 一致性
+    for i in ("1", "2", "3", "4"):
+        checkNum("pwm" + i + "freq", int, 1, 78125)
+        checkNum("pwm" + i + "min", int, 0, 100)
+        checkNum("pwm" + i + "max", int, 0, 100)
+        checkNum("pwm" + i + "default", int, 0, 100)
+        checkPair("pwm" + i + "min", "pwm" + i + "max", int)
+    # 兼容旧接口 PWM 参数
+    checkNum("pwmFreq", int, 1, 78125)
+    checkNum("pwmMinDuty", int, 0, 100)
+    checkNum("pwmMaxDuty", int, 0, 100)
+
+    # 加水（s）与 TDS 阈值、Modbus
+    checkNum("minAddWaterInterval", int, 0, 2592000)
+    checkNum("waterFillTimeOut", int, 1, 86400)
+    checkNum("waterDischargeTimeOut", int, 1, 86400)
+    checkNum("waterTDSThreshold", int, 0, 10000, skipPlaceholder=True)
+    checkNum("modbusBadud", int, 1, 115200)
+    checkNum("modbusSlaveAddr", int, 1, 247)
+
+    return errors
+
+
 # setwifi?ssid=3&pwd=123456&serverurl=192.168.1.124&devicepwd=pengping
 # &devicename=----&sw1name=----&sw2name=----
 @app.get('/setwifi')
@@ -532,7 +606,8 @@ def handler(request):
         log("reboot after 10s.")
         createConfigTimer(10)
         res["APName"] = ssid
-        res["url"] = wifi.getStationIP()
+        # getStationIP 失败返回 None（P1-4），兜底空串避免 JSON null
+        res["url"] = wifi.getStationIP() or ""
         res["errCode"] = "0"
         res["msg"] = "connect wifi success and node will reboot after 5s."
     else:
@@ -644,7 +719,14 @@ loopTick = utime.ticks_ms()
 lastGcTick = loopTick
 lastLedTick = loopTick
 lastMainSaveTick = loopTick
+lastWifiCheckTick = loopTick
 ledOn = True
+
+# WiFi 断线应用层重连（P1-7）：normal 模式下每 30s 检查一次连接状态，
+# 断线则调用 wifi.startReconnect() 非阻塞发起重连（wlan.connect() 异步执行，
+# 不阻塞主循环，绝不触发喂狗超时）；结果由下一轮检查确认，
+# 断线期间的 LED 指示由 broadcastIPInfo 线程按实际连接状态刷新
+WIFI_RECONNECT_INTERVAL_MS = 30000
 
 
 while True:
@@ -654,6 +736,13 @@ while True:
 
     # NTP 对时（联网后未同步每 60s 重试，成功后每 1 周重新校时）
     tryNtpSync()
+
+    # WiFi 断线重连：normal 模式每 30s 检查，断线则非阻塞发起重连（P1-7）
+    if "normal" == systemConfig["mode"] and utime.ticks_diff(loopTick, lastWifiCheckTick) >= WIFI_RECONNECT_INTERVAL_MS:
+        lastWifiCheckTick = loopTick
+        if not wifi.isConnected():
+            log("[WARN]wifi disconnected, try reconnect.")
+            wifi.startReconnect(systemConfig["wifiname"], systemConfig["wifipwd"])
 
     # 运行状态机（10Hz 节拍：100ms）
     runFSM()

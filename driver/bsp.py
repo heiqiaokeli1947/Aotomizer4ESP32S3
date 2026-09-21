@@ -117,9 +117,10 @@ class BSP:
         self._pwmReady = True
 
     def updatePWM(self):
-        # 已构造的 PWM 仅更新频率/占空比，不重建对象
-        self.__pwmWaterBump.freq(int(self.config["pwm1freq"]))
-        self.__pwmWaterBump.duty(int(self.config["pwm1default"]))
+        # 已构造的 PWM 仅更新频率/占空比，不重建对象。
+        # 泵（pwm1）由 FSM 独占控制（setWaterPump），此处跳过——运行中保存任意配置
+        # 若把泵 duty 强制回 pwm1default(0)，正在进行的喷雾相位会静默停泵（P1-5 修复）；
+        # pwm1 参数变更在下次上电 initHW() 时生效
         self.__fan1PwmPin.freq(int(self.config["pwm2freq"]))
         self.__fan1PwmPin.duty(int(self.config["pwm2default"]))
         self.__fan2PwmPin.freq(int(self.config["pwm3freq"]))
@@ -189,8 +190,22 @@ class BSP:
                 self._tds_state = 0
 
     def _applyTdsResult(self):
-        log(f"通道1(进水):水温：{self._tds_inWaterTemp:.1f} ℃, TDS：{self._tds_inWaterTDS:.1f} ppm")
-        log(f"通道2(水箱):水温：{self._tds_waterTankTemp:.1f} ℃, TDS：{self._tds_waterTankTDS:.1f} ppm")
+        # BE-2：失败通道不再打出 "-999.9 ℃, -9999.0 ppm" 噪声日志——
+        # 两通道均失败时合并为单条 WARN；单通道失败只 WARN 失败通道，正常通道保持完整日志
+        INVALID = -9999
+        ch1Fail = self._tds_inWaterTDS == INVALID
+        ch2Fail = self._tds_waterTankTDS == INVALID
+        if ch1Fail and ch2Fail:
+            log("[WARN] TDS 两通道均读取失败，已置无效值 -9999")
+        else:
+            if ch1Fail:
+                log("[WARN] TDS 通道1(进水) 读取失败，已置无效值 -9999")
+            else:
+                log(f"通道1(进水):水温：{self._tds_inWaterTemp:.1f} ℃, TDS：{self._tds_inWaterTDS:.1f} ppm")
+            if ch2Fail:
+                log("[WARN] TDS 通道2(水箱) 读取失败，已置无效值 -9999")
+            else:
+                log(f"通道2(水箱):水温：{self._tds_waterTankTemp:.1f} ℃, TDS：{self._tds_waterTankTDS:.1f} ppm")
         self.__sensorData.inWaterTDS = self._tds_inWaterTDS
         self.__sensorData.inWaterTemp = self._tds_inWaterTemp
         self.__sensorData.waterTankTDS = self._tds_waterTankTDS

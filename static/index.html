@@ -1163,7 +1163,11 @@
                 const fineLThreshold = deviceData.get('spray.fineLThreshold');
                 const fineTempEl = $(CONFIG.SELECTORS.FINE_TEMP);
                 fineTempEl.removeClass('text-green text-red');
-                if (fineTemp !== '----' && fineLThreshold !== '----') {
+                // FE-9：无效值在模型中是数字 -9999（非 '----' 字符串），一并排除，
+                // 避免传感器失败时无效温度被染成正常绿色
+                const INVALID = deviceData.INVALID_VALUE;
+                if (fineTemp !== '----' && fineLThreshold !== '----' &&
+                    fineTemp !== INVALID && fineLThreshold !== INVALID) {
                     fineTempEl.addClass(parseFloat(fineTemp) > parseFloat(fineLThreshold) ? 'text-red' : 'text-green');
                 }
             };
@@ -1714,9 +1718,14 @@
                         UTILS.showMessage('错误', '无效的响应', 'error');
                         return;
                     }
-                    const msg = messages[resJson.errCode] || (resJson.msg || '未知错误');
-                    const type = resJson.errCode === '0' ? 'success' : 'error';
-                    UTILS.showMessage(type === 'success' ? '成功' : '错误', msg, type);
+                    // FE-1：失败时服务端 msg 优先（如参数校验拒绝的具体原因、密码错误说明），
+                    // 服务端未提供 msg 时才回退到端点预置文案（如"密码错误!"）；
+                    // 成功时预置文案优先（保留"设置成功!"等中文友好提示）
+                    const success = resJson.errCode === '0';
+                    const msg = success
+                        ? (messages[resJson.errCode] || resJson.msg || '未知错误')
+                        : (resJson.msg || messages[resJson.errCode] || '未知错误');
+                    UTILS.showMessage(success ? '成功' : '错误', msg, success ? 'success' : 'error');
                 }
             };
         }
