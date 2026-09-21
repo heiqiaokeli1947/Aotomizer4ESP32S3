@@ -1,3 +1,4 @@
+from domain.LogUtils import log
 from machine import UART
 import time
 
@@ -159,4 +160,4 @@ class TDSModule:
         cs = self.calc_checksum(frame)
         frame.append(cs)
         self.uart.write(frame)
-        print("模块已进入休眠")
+        log("模块已进入休眠")

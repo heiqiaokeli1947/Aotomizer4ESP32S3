@@ -1,3 +1,4 @@
+from domain.LogUtils import log
 from machine import Pin, PWM, I2C, SoftI2C, Timer
 from micropython import const
 import domain.sensorData as sensorData
@@ -25,10 +26,10 @@ class BSP:
     def __init__(self):
         # 防止重复初始化
         if self._initialized:
-            print("BSP initialed.")
+            log("BSP initialed.")
             return
 
-        print("BSP Initializing...")
+        log("BSP Initializing...")
         self.config = None
 
         #软件I2C
@@ -67,16 +68,17 @@ class BSP:
         #
         self.__sensorData = sensorData.SensorData()
 
-        print("init bmp280...")
+        log("init bmp280...")
         self.__bmp280 = bmp280.BMP280(self.softI2C)
 
-        print("init hdc1080...")
+        log("init hdc1080...")
         self.__hdc1080 = hdc1080.HDC1080(self.softI2C)
 
-        print("init tds...")
+        log("init tds...")
         TDS_TX_PIN = 18  # ESP32 TX -> 模块RX
         TDS_RX_PIN = 17  # ESP32 RX -> 模块TX
-        self.tds_sensor = tds(tx_pin=TDS_TX_PIN, rx_pin=TDS_RX_PIN, uart_id=1)
+        # baudrate 显式指定 9600（TDS 模块固定波特率）：不依赖驱动默认值，防静默漂移
+        self.tds_sensor = tds(tx_pin=TDS_TX_PIN, rx_pin=TDS_RX_PIN, uart_id=1, baudrate=9600)
 
         self.__sensorReadTimer = Timer(1)
         self.__sensorReadTimer.init(mode=Timer.PERIODIC, period=1000, callback=self.timerHandler)
@@ -100,7 +102,7 @@ class BSP:
         self.initHW()
 
     def initHW(self):
-        print("init pwm...")
+        log("init pwm...")
         self.__pwmWaterBump = PWM(Pin(10),freq=int(self.config["pwm1freq"]), duty=int(self.config["pwm1default"]))
         self.__fanSpeed = 0
         self.__fan1PwmPin = PWM(Pin(46),freq=int(self.config["pwm2freq"]), duty=int(self.config["pwm2default"]))
@@ -115,7 +117,7 @@ class BSP:
         self.__sensorData.presure = self.__bmp280.getPress()
         self.__sensorData.altitude = self.__bmp280.getAltitude()
         self.__sensorData.tempBMP280 = self.__bmp280.getTemp()
-        # print("bmp280:temp={},Presure={},Altitude={}".format(temp,pres,alt))
+        # log("bmp280:temp={},Presure={},Altitude={}".format(temp,pres,alt))
 
     def hdc1080TimerHandler(self, timer):
         self.__sensorData.temp = self.__hdc1080.temperature
@@ -170,8 +172,8 @@ class BSP:
                 self._tds_state = 0
 
     def _applyTdsResult(self):
-        print(f"通道1(进水):水温：{self._tds_inWaterTemp:.1f} ℃, TDS：{self._tds_inWaterTDS:.1f} ppm")
-        print(f"通道2(水箱):水温：{self._tds_waterTankTemp:.1f} ℃, TDS：{self._tds_waterTankTDS:.1f} ppm")
+        log(f"通道1(进水):水温：{self._tds_inWaterTemp:.1f} ℃, TDS：{self._tds_inWaterTDS:.1f} ppm")
+        log(f"通道2(水箱):水温：{self._tds_waterTankTemp:.1f} ℃, TDS：{self._tds_waterTankTDS:.1f} ppm")
         self.__sensorData.inWaterTDS = self._tds_inWaterTDS
         self.__sensorData.inWaterTemp = self._tds_inWaterTemp
         self.__sensorData.waterTankTDS = self._tds_waterTankTDS
@@ -200,16 +202,16 @@ class BSP:
             base = (int(self.config["pwm3min"])/100)*int(self.config["pwm3freq"])
             full = (int(self.config["pwm3max"]) - int(self.config["pwm3min"]))/100*int(self.config["pwm3freq"])
             duty = 1023*(full * (percent / 100.0) + base) /int(self.config["pwm3freq"])
-            print("base:{},full:{},duty:{}".format(base,full,int(duty)))
+            log("base:{},full:{},duty:{}".format(base,full,int(duty)))
             if duty > int(self.config["pwm3freq"]):
                 duty = int(self.config["pwm3freq"])
         #第1组用于直接控制mos，给风扇供应电源
         if duty == 0:
             self.__fan1PwmPin.duty(0)
-            print("PWM duty1:{}，duty2:{}".format(0,int(duty)))
+            log("PWM duty1:{}，duty2:{}".format(0,int(duty)))
         else:
             self.__fan1PwmPin.duty(1023)
-            print("PWM duty1:{}，duty2:{}".format(1023,int(duty)))
+            log("PWM duty1:{}，duty2:{}".format(1023,int(duty)))
 			
 		#第2组用于控制风险转速
         self.__fan2PwmPin.duty(int(duty))
@@ -247,7 +249,7 @@ class BSP:
 
         duty = _WATER_PUMP_FREQ * (tmp / 100.0)
 
-        # print("setWaterPump duty:{}".format(int(duty)))
+        # log("setWaterPump duty:{}".format(int(duty)))
         self.__pwmWaterBump.duty(int(duty))
 
     def getWaterTankStatus(self):
@@ -258,7 +260,7 @@ class BSP:
         elif self.__waterTankTopSensor.value() == 0 and self.__waterTankBottomSensor.value() == 1:
             return enum.WaterMark.EMPTY
         else:
-            print("[ERROR]:default water full status.")
+            log("[ERROR]:default water full status.")
             return enum.WaterMark.FULL
     def getSysEnableStatus(self):
         if self.__sysEnableSwitch.value() == 1:

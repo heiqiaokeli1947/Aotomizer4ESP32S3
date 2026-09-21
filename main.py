@@ -1,3 +1,4 @@
+from domain.LogUtils import log
 import machine
 from machine import Timer
 from lib.microdot import Microdot, send_file
@@ -8,6 +9,7 @@ import driver.bsp as bsp
 import domain.AotomizerFSM as aotomizerFSM
 import domain.WaterProcessFSM as waterProcessFSM
 import domain.DBUtils as db
+import domain.ntpSync as ntpSync
 import _thread
 import gc
 import micropython as mp
@@ -17,12 +19,12 @@ LEDArrayColor = (255, 0, 0)
 # from machine import RTC
 # rtc = RTC()
 # rtc.datetime((2024, 1, 1, 12, 0, 0, 0, 0))
-# print(rtc.datetime())
+# log(rtc.datetime())
 
 
 # default systemConfig
-print("software version:202606141506")
-print("start begin...")
+log("software version:202606141506")
+log("start begin...")
 
 defaulteSystemConfig = {
     "deviceusername": "admin",
@@ -87,15 +89,15 @@ if systemConfig is not None:
     except ValueError:
         pass
     if not isinstance(stored, dict):
-        print("[ERROR]systemConfig in DB invalid, fallback to defaults.")
+        log("[ERROR]systemConfig in DB invalid, fallback to defaults.")
         stored = {}
     # F10：与出厂默认配置合并——老数据库缺少的新增字段取默认值，
     # 防止固件升级后访问缺失字段 KeyError 导致启动失败（合并结果在下次保存配置时落库）
     systemConfig = dict(defaulteSystemConfig)
     systemConfig.update(stored)
-    print("systemConfig in DB:{}".format(systemConfig))
+    log("systemConfig in DB:{}".format(systemConfig))
 else:
-    print("create default systemConfig:{}...".format(
+    log("create default systemConfig:{}...".format(
         ujson.dumps(defaulteSystemConfig)))
     db.save({"systemConfig": ujson.dumps(defaulteSystemConfig)})
     systemConfig = dict(defaulteSystemConfig)
@@ -103,32 +105,38 @@ else:
 # 初始化设备 UUID
 if "deviceId" not in systemConfig or not systemConfig["deviceId"]:
     systemConfig["deviceId"] = machine.unique_id().hex().upper()
-    print("Generated device UUID:{}".format(systemConfig["deviceId"]))
+    log("Generated device UUID:{}".format(systemConfig["deviceId"]))
     db.save({"systemConfig": ujson.dumps(systemConfig)})
 else:
-    print("Device UUID:{}".format(systemConfig["deviceId"]))
+    log("Device UUID:{}".format(systemConfig["deviceId"]))
 
 
 def createDefaultConfig():
-    print("create default config...")
+    log("create default config...")
     db.delete("systemConfig")
     db.save({"systemConfig": ujson.dumps(defaulteSystemConfig)})
 
 loopCounter = 0  # 循环计数器，用于定时判断
-bootTime = utime.time()  # 记录启动时间，用于计算本次开机运行时间
-initialBootTime = bootTime  # 记录初始启动时间（不会被更新）
+# 运行时长用毫秒节拍"累计"计算（不依赖 utime.time()——NTP 对时后系统时间会向前跳变，
+# 墙钟差值会导致 runTime/totalRunTime 突变为巨大值）。
+# 每轮主循环累加毫秒差、输出时再换算秒：
+# ① 累计对象是每轮约 1s 的间隔，永远处于 ticks_diff 安全窗口（差值 < 2^29ms ≈ 6.21 天）内，
+#    避免"距开机时长"超窗口后 runTime 变负数（ticks_ms 以 2^30ms 回绕）
+# ② 毫秒精确累计不丢余数，避免每轮 //1000 整除导致 totalRunTime 累计偏慢 2~9%
+runMs = 0  # 本次开机运行毫秒数（输出 runTime = runMs // 1000）
+lastSysTick = utime.ticks_ms()  # sysTask 上次采样时刻（每轮刷新）
 
-totalRunTime = 0
+totalRunTimeMs = 0  # 跨开机累计运行毫秒数（DB 中仍以秒为单位存储）
 if db.get("totalRunTime") is not None:
-    totalRunTime = int(db.get("totalRunTime"))
+    totalRunTimeMs = int(db.get("totalRunTime")) * 1000
 else:
-    db.save({"totalRunTime": str(totalRunTime)})
+    db.save({"totalRunTime": "0"})
 
 
 bspInstance = bsp.BSP()
 bspInstance.setConfig(systemConfig)
 
-print("init FSM...")
+log("init FSM...")
 fsmList = {
     "aotomizerFSM": aotomizerFSM.FSM(bspInstance, systemConfig),
     "waterProcessFSM": waterProcessFSM.FSM(bspInstance, systemConfig)
@@ -170,9 +178,9 @@ def feedDog(timer):
     now = utime.ticks_ms()
     if utime.ticks_diff(now, lastAliveTick) < ALIVE_TIMEOUT_MS:
         wdt.feed()
-        print("{}:feed dog-----------".format(loopCounter))
+        log("{}:feed dog-----------".format(loopCounter))
     else:
-        print("[WARN]main loop blocked {}ms, stop feeding WDT.".format(
+        log("[WARN]main loop blocked {}ms, stop feeding WDT.".format(
             utime.ticks_diff(now, lastAliveTick)))
 
 
@@ -181,17 +189,17 @@ WDTTimer.init(mode=Timer.PERIODIC, period=15000, callback=feedDog)
 
 
 def saveData():
-    global totalRunTime
-    db.save({"totalRunTime": str(totalRunTime)})
+    global totalRunTimeMs
+    db.save({"totalRunTime": str(totalRunTimeMs // 1000)})
 
 
 # 超时或者自动重连上了就会自动退出
 def ModeTimerHandler(timer):
-    print("config mode left {}s to exit.".format(
+    log("config mode left {}s to exit.".format(
         MAX_CONFIG_MODE_TIME_IN_SECONDS - (utime.time() - whenGotoConfigMode)))
     status = wifi.isConnected()
     if status or ((utime.time() - whenGotoConfigMode) > MAX_CONFIG_MODE_TIME_IN_SECONDS):
-        print("reboot after 5s.")
+        log("reboot after 5s.")
         wifi.stopAP()
         utime.sleep_ms(5000)
         machine.reset()
@@ -203,7 +211,7 @@ def createConfigTimer(seconds):
                    callback=ModeTimerHandler)
 
 
-print("start finish.")
+log("start finish.")
 
 # wifi.startAP(systemConfig["APName"],"880612")
 
@@ -223,34 +231,34 @@ def broadcastIPInfo(name):
     global gotIpNow
     global LEDArrayColor
     while True:
-        print("{}:detect IP info...".format(name))
+        log("{}:detect IP info...".format(name))
         gotIpNow = wifi.getStationIP()
         if gotIpNow and gotIpLast != gotIpNow:
             broadcastName = systemConfig["devicename"] + "_" + gotIpNow
             wifi.startAP(broadcastName, systemConfig["APPwd"])
-            print("---------------IP changed. now:{}, last:{}".format(
+            log("---------------IP changed. now:{}, last:{}".format(
                 gotIpNow, gotIpLast))
             gotIpLast = gotIpNow
         elif gotIpNow:
-            print("get IP success:{}".format(gotIpNow))
+            log("get IP success:{}".format(gotIpNow))
             LEDArrayColor = (0, 255, 0)
             bspInstance.setLEDArray(LEDArrayColor)
         else:
             LEDArrayColor = (255, 0, 255)
             bspInstance.setLEDArray(LEDArrayColor)
-            print("get IP failed.")
+            log("get IP failed.")
         utime.sleep_ms(60000)
 
 
 if "normal" == systemConfig["mode"] and wifi.connectToWifi(
         systemConfig["wifiname"], systemConfig["wifipwd"]):
-    print("connect wifi success. broadcast node ip.")
+    log("connect wifi success. broadcast node ip.")
     _thread.start_new_thread(broadcastIPInfo, ("Thread-broadcastIPInfo",))
 else:
     systemConfig["mode"] = "config"
     LEDArrayColor = (0, 0, 255)
     bspInstance.setLEDArray(LEDArrayColor)
-    print("start config mode...")
+    log("start config mode...")
 
     whenGotoConfigMode = utime.time()
     wifi.startAP(systemConfig["APName"], systemConfig["APPwd"], True)
@@ -290,7 +298,7 @@ def handler(request, path):
 @app.get('/status')
 def handler(request):
     global whenGotoConfigMode
-    global totalRunTime
+    global totalRunTimeMs
     global systemConfig
     whenGotoConfigMode = utime.time()
     if "devicepwd" not in request.args or request.args["devicepwd"] != systemConfig["devicepwd"]:
@@ -315,8 +323,8 @@ def handler(request):
         res["presure"] = bspInstance.getSensorData().presure
         res["luminance"] = bspInstance.getSensorData().luminance
         res["pm25"] = bspInstance.getSensorData().pm25
-        res["runTime"] = utime.time() - initialBootTime  # 本次开机运行时间（秒）
-        res["totalRunTime"] = totalRunTime
+        res["runTime"] = runMs // 1000  # 本次开机运行时间（秒）
+        res["totalRunTime"] = totalRunTimeMs // 1000
         res.update(fsmList["aotomizerFSM"].getStatus())
         res.update(fsmList["waterProcessFSM"].getStatus())
 
@@ -385,7 +393,7 @@ def handler(request):
                 systemConfig["sw1"] = True
             else:
                 systemConfig["sw1"] = False
-            print("Switch status changed: sw1={}".format(systemConfig["sw1"]))
+            log("Switch status changed: sw1={}".format(systemConfig["sw1"]))
 
         if "sw2" in request.args:
             sw2_val_str = str(request.args["sw2"]).lower()
@@ -393,7 +401,7 @@ def handler(request):
                 systemConfig["sw2"] = True
             else:
                 systemConfig["sw2"] = False
-            print("Switch status changed: sw2={}".format(systemConfig["sw2"]))
+            log("Switch status changed: sw2={}".format(systemConfig["sw2"]))
 
         # 开关名称参数
         if "sw1name" in request.args:
@@ -447,11 +455,11 @@ def handler(request):
         if "modbusSlaveAddr" in request.args:
             systemConfig["modbusSlaveAddr"] = int(request.args["modbusSlaveAddr"])
 
-        print("new systemConfig:{}".format(systemConfig))
+        log("new systemConfig:{}".format(systemConfig))
         db.save({"systemConfig": ujson.dumps(systemConfig)})
 
         bspInstance.setConfig(systemConfig)
-        print("set config finish")
+        log("set config finish")
         reloadConfigFSM()
         return ujson.dumps(res)
     else:
@@ -465,7 +473,7 @@ def handler(request):
     whenGotoConfigMode = utime.time()
     res = wifi.scanAP()
     if len(res) > 0:
-        print("scanap:{}".format(res))
+        log("scanap:{}".format(res))
         return ujson.dumps(res)
     else:
         return "{}"
@@ -484,8 +492,8 @@ def handler(request):
     global whenGotoConfigMode
     whenGotoConfigMode = utime.time()
     res = {"errCode": "0", "msg": "success", "APName": "APName", "url": "url"}
-    print("setwifi:path:{} ".format(request.path))
-    print("setwifi:args:{}".format(maskArgs(request.args)))
+    log("setwifi:path:{} ".format(request.path))
+    log("setwifi:args:{}".format(maskArgs(request.args)))
     # F7：必填参数校验，缺失时返回错误码而不是抛 KeyError 导致 500
     required = ("ssid", "pwd", "devicename", "devicepwd", "serverurl", "sw1name", "sw2name")
     missing = [k for k in required if k not in request.args or request.args[k] == ""]
@@ -521,7 +529,7 @@ def handler(request):
 
         db.save({"systemConfig": ujson.dumps(systemConfig)})
         whenGotoConfigMode = utime.time() - MAX_CONFIG_MODE_TIME_IN_SECONDS + 10
-        print("reboot after 10s.")
+        log("reboot after 10s.")
         createConfigTimer(10)
         res["APName"] = ssid
         res["url"] = wifi.getStationIP()
@@ -540,11 +548,11 @@ def handler(request):
     global whenGotoConfigMode
     whenGotoConfigMode = utime.time()
     res = {"errCode": "0", "msg": "success"}
-    print("reset:path:{} ".format(request.path))
-    print("reset:args:{}".format(maskArgs(request.args)))
+    log("reset:path:{} ".format(request.path))
+    log("reset:args:{}".format(maskArgs(request.args)))
 
     if "devicepwd" in request.args and request.args["devicepwd"] == systemConfig["devicepwd"]:
-        print("reset after 5s.")
+        log("reset after 5s.")
         createDefaultConfig()
         createConfigTimer(5)
         whenGotoConfigMode = utime.time() - MAX_CONFIG_MODE_TIME_IN_SECONDS + 5
@@ -561,11 +569,11 @@ def handler(request):
     global whenGotoConfigMode
     whenGotoConfigMode = utime.time()
     res = {"errCode": "0", "msg": "success"}
-    print("restart:path:{} ".format(request.path))
-    print("restart:args:{}".format(maskArgs(request.args)))
+    log("restart:path:{} ".format(request.path))
+    log("restart:args:{}".format(maskArgs(request.args)))
 
     if "devicepwd" in request.args and request.args["devicepwd"] == systemConfig["devicepwd"]:
-        print("reboot after 5s.")
+        log("reboot after 5s.")
         closeFSM()
         createConfigTimer(5)
         whenGotoConfigMode = utime.time() - MAX_CONFIG_MODE_TIME_IN_SECONDS + 5
@@ -577,7 +585,7 @@ def handler(request):
 
 
 def runWebApp(name):
-    print("start web app:{}...".format(name))
+    log("start web app:{}...".format(name))
     app.run(host='0.0.0.0', port=80, debug=False, ssl=None)
 
 
@@ -585,15 +593,49 @@ try:
     _thread.stack_size(32 * 1024)
     _thread.start_new_thread(runWebApp, ("Thread:WebApp",))
 except OSError as e:
-    print(f"Error starting thread: {e}")
+    log(f"Error starting thread: {e}")
+
+
+# NTP 对时调度（两阶段，由"首次校时成功"标记切换）：
+#   阶段1：首次校时未成功（ntpSynced=False）→ 每 60s 重试，直到首次校时成功
+#   阶段2：首次校时已成功（ntpSynced=True）→ 每 1 周重新校时一次
+# 跳变安全设计：
+#   - 60s 重试节流用 ticks_ms 单调节拍，完全不受 RTC 跳变影响
+#   - 1 周周期用 utime.time() 判断，但 ntpLastSync 只在首次校时成功后才取样
+#     （此时系统时间已从 1970 跳变到真实时间且不再跳变），跳变无法污染周期判断
+NTP_RETRY_INTERVAL_S = 60  # 首次校时成功前的重试周期
+NTP_RESYNC_INTERVAL_S = 7 * 24 * 3600  # 首次校时成功后的周期校时间隔：1 周
+ntpSynced = False  # 首次校时成功标记：只有校时真正成功才置 True
+ntpLastTryTick = -NTP_RETRY_INTERVAL_S * 1000  # 负初始值：开机后首轮循环立即尝试第一次
+ntpLastSync = 0  # 最近一次成功校时的墙钟时刻（首次成功后才取样，用于 1 周周期判断）
+
+
+def tryNtpSync():
+    global ntpSynced, ntpLastTryTick, ntpLastSync
+    if not wifi.isConnected():
+        return
+    # 60s 重试节流（单调节拍，不受 RTC 跳变影响）
+    nowTick = utime.ticks_ms()
+    if utime.ticks_diff(nowTick, ntpLastTryTick) < NTP_RETRY_INTERVAL_S * 1000:
+        return
+    # 周期校时门槛：只有首次校时成功后才启用 1 周周期判断
+    if ntpSynced and (utime.time() - ntpLastSync) < NTP_RESYNC_INTERVAL_S:
+        return
+    ntpLastTryTick = nowTick
+    if ntpSync.syncRtc():
+        ntpSynced = True  # 刷新首次校时成功标记
+        # 此刻系统时间已完成跳变（1970 → 真实时间），取样才有正确基准
+        ntpLastSync = utime.time()
 
 
 def sysTask():
-    global totalRunTime
-    global bootTime
-    currentTime = utime.time()
-    totalRunTime += (currentTime - bootTime)
-    bootTime = currentTime
+    global runMs, totalRunTimeMs, lastSysTick
+    nowTick = utime.ticks_ms()
+    # 毫秒精确累计：每轮间隔约 1s（安全窗口内），先累加、输出时才整除转秒，不丢余数
+    deltaMs = utime.ticks_diff(nowTick, lastSysTick)
+    runMs += deltaMs
+    totalRunTimeMs += deltaMs
+    lastSysTick = nowTick
 
 
 
@@ -602,14 +644,17 @@ while True:
 
     sysTask()
 
+    # NTP 对时（联网后未同步每 60s 重试，成功后每 1 周重新校时）
+    tryNtpSync()
+
     # 运行状态机
     runFSM()
 
     if loopCounter % 300 == 0:
-        print("-------------Before GC-------------")
+        log("-------------Before GC-------------")
         mp.mem_info()
         gc.collect()
-        print("-------------After  GC-------------")
+        log("-------------After  GC-------------")
         mp.mem_info()
 
     if loopCounter % 2 == 0:
@@ -619,7 +664,7 @@ while True:
 
     if (loopCounter % 3600) == 0:
         saveData()
-        print("Main:save data to db finish.")
+        log("Main:save data to db finish.")
 
     utime.sleep_ms(1000)
     loopCounter += 1

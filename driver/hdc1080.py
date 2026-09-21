@@ -8,6 +8,7 @@ https://github.com/mcauser/micropython-hdc1080
 
 __version__ = "1.0.1"
 
+from domain.LogUtils import log
 from micropython import const
 from time import sleep_ms
 
@@ -33,7 +34,7 @@ class HDC1080:
         
     def initHardware(self):
         i2c_devices = self._i2c.scan()
-        #print(i2c_devices)
+        #log(i2c_devices)
         
         if self._address not in i2c_devices:
             self.hardWareReady = False

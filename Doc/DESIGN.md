@@ -15,7 +15,9 @@
 | WiFi 双模式 | AP 热点 + STA 连接 |
 | 数据持久化 | BTree 数据库保存配置和统计数据 |
 | 状态指示灯 | WS2812 RGB LED 显示系统状态 |
-| 看门狗保护 | WDT 防止系统卡死 |
+| 看门狗保护 | WDT 防止系统卡死（活性检测式条件喂狗） |
+| NTP 网络对时 | 联网后 SNTP 校时 RTC 为北京时间，首次成功后每 1 周自动重校 |
+| 全局日志时间戳 | 统一 `log()` 输出，带 `[YYYY-MM-DD HH:MM:SS]` 前缀 |
 
 ### 1.3 技术栈
 | 类别 | 技术 |
@@ -45,8 +47,9 @@ Aotomizer4ESP32S3/
 │   ├── sensorData.py          # 全局传感器数据容器（单例）
 │   ├── DBUtils.py             # BTree 数据库读写工具
 │   ├── wifi.py                # WiFi 连接管理
+│   ├── ntpSync.py             # NTP 网络对时（联网后同步 RTC 为北京时间）
 │   ├── AACOps.py              # 空调控制操作
-│   ├── LogUtils.py            # 日志工具
+│   ├── LogUtils.py            # 全局日志工具（log() 输出带 [日期 时间] 前缀）
 │   └── fileUtils.py           # 文件工具
 │
 ├── driver/                    # 驱动层
@@ -98,7 +101,7 @@ Aotomizer4ESP32S3/
 | **PWM 输出** | 风扇电源控制 | GPIO46 (PWM2) | 使用中 | 风扇 MOS 管开关，0=全断,1023=全通 |
 | **PWM 输出** | 风扇转速控制 | GPIO9 (PWM3) | 使用中 | 风扇转速 PWM 调节，频率 25kHz |
 | **PWM 输出** | PWM 通道4 | GPIO 预留 | 可用 | 预留扩展，可用于额外风扇或水泵 |
-| **UART** | UART1 | GPIO17(RX) / GPIO18(TX) | 使用中 | TDS 水质传感器串口通信（38400bps） |
+| **UART** | UART1 | GPIO17(RX) / GPIO18(TX) | 使用中 | TDS 水质传感器串口通信（9600bps） |
 | **UART** | UART0 | 默认引脚 | 可用 | 预留扩展，可用于调试或其他串口设备 |
 | **I²C** | 软件 I²C | SCL=GPIO3 / SDA=GPIO8 | 使用中 | 连接 BMP280 和 HDC1080 传感器，100kHz |
 | **I²C 设备** | BMP280 | 地址 0x76 | 使用中 | 气压/温度/海拔传感器 |
@@ -187,6 +190,8 @@ self.__fan2PwmPin = PWM(Pin(9), freq=int(self.config["pwm3freq"]), duty=int(self
 | **sensorData** | 全局数据容器 | 被引用 |
 | **DBUtils** | BTree 数据库 KV 读写 | 被调用 |
 | **wifi** | WiFi 连接管理（自动重连、AP/STA 切换） | 后台循环 |
+| **ntpSync** | SNTP 网络对时（UTC+8 写入 RTC，仅联网后生效） | 主循环轮询 |
+| **LogUtils** | 全局日志 `log()`（带 [日期 时间] 前缀） | 被调用 |
 
 ---
 
@@ -197,7 +202,7 @@ self.__fan2PwmPin = PWM(Pin(9), freq=int(self.config["pwm3freq"]), duty=int(self
 **运行时序：**
 ```
 boot → WiFi 连接 → 传感器初始化 → Timer(1) 启动（1秒周期）
-  → Web 服务启动 → 主循环（FSM 调度 + WDT 喂狗 + 数据保存）
+  → Web 服务启动 → 主循环（FSM 调度 + NTP 对时轮询 + 数据保存；WDT 由 Timer(0) 条件喂狗）
 ```
 
 **启动配置加载（2026-09-21 修复 F10）：**
@@ -208,9 +213,10 @@ boot → WiFi 连接 → 传感器初始化 → Timer(1) 启动（1秒周期）
 
 **主循环职责：**
 1. 刷新主循环活性时间戳 `updateAliveTick()`
-2. 调度 `WaterProcessFSM.tick()`
-3. 调度 `AotomizerFSM.tick()`
-4. 定时保存传感器数据到数据库
+2. 调度 `WaterProcessFSM.run()`
+3. 调度 `AotomizerFSM.run()`
+4. NTP 对时轮询 `tryNtpSync()`（未联网或未到期时立即返回，见 13.1）
+5. 定时保存统计数据到数据库（totalRunTime / totalSprayCount）
 
 **看门狗机制（活性检测式喂狗，2026-09-21 修复 R1）：**
 - WDT 超时 60s；Timer(0) 每 15s 触发 `feedDog` 回调
@@ -294,13 +300,14 @@ boot → WiFi 连接 → 传感器初始化 → Timer(1) 启动（1秒周期）
 
 **设计模式：** 状态机（FSM）
 
-**喷雾逻辑核心：**
-- 翅片温度 > `fineHThreshold` + 湿度 < `fineHThreshold` → 开始喷雾
-- 翅片温度 < `fineLThreshold` → 停止喷雾
-- 单次喷雾时长 ≥ `maxSparyTime` → 强制停止
-- 喷雾间隔 ≥ `sprayPeriod` → 允许再次喷雾
-
-> 注：当前代码实际判定条件为"空调开启 且 翅片温度 > fineLThreshold"，`fineHThreshold`/湿度/湿球温度尚未参与控制（待业务确认）。
+**喷雾逻辑核心（与代码一致，2026-09-21 刷新）：**
+- 前置条件：空调运行中（霍尔传感器 `airConditionerStatus == ON`）且水箱有水（`waterAvailable`）
+- 启动喷雾：空调开启 且 翅片温度 > `fineLThreshold` → 进入 OVER_TEMP 并计算时长
+- 停止/不喷雾：空调关闭、水箱无水或翅片温度 ≤ `fineLThreshold` → 回 READY
+- **基准时长线性+偏置**（替代原阶梯式 if/elif）：翅片温度 = `fineLThreshold` → `minSparyTime`，达到 `fineHThreshold` → `maxSparyTime`，中间线性过渡、区间外钳位（`fineHThreshold` 由此参与控制；配置异常即高温阈值 ≤ 低温阈值时按最短时长兜底）
+- **三路配比**：阀门安装位置上→下 = 1/2/3，阀门1 = 100%、阀门2 = 70%、阀门3 = 40%（不足 1 秒按 1 秒兜底），三路依次轮流喷雾
+- 喷雾间隔：一轮结束后等待 `sprayPeriod` 秒（SPRAY_DELAY）才允许再次喷雾
+- 湿度/湿球温度当前仅采集显示，未参与控制（待业务确认，见 15 节 F3）
 
 **状态枚举（STATUS，与代码一致）：**
 | 状态值 | 名称 | 说明 |
@@ -311,16 +318,17 @@ boot → WiFi 连接 → 传感器初始化 → Timer(1) 启动（1秒周期）
 | 3 | OVER_TEMP | 翅片超温（检查水可用性，进入喷雾序列） |
 | 4 | SPRAY_WATER_1 | 喷雾通道1（openSparyEV1，计时 spray1TimeOut） |
 | 5 | SPRAY_WATER_2 | 喷雾通道2（openSparyEV2） |
-| 6 | SPRAY_WATER_3 | 喷雾通道3（openSparyEV3 调用被注释，1秒空过渡） |
+| 6 | SPRAY_WATER_3 | 喷雾通道3（2026-09-21 修复 F1：openSparyEV3 已启用，三路轮流喷雾） |
 | 7 | SPRAY_DELAY | 喷雾延时（等待 sprayPeriod） |
 
 （2026-09-21 修复 F11：删除了从 WaterProcessFSM 复制残留的死方法 `checkWaterMark()`——它引用了本类 STATUS 中不存在的 `WATER_TANK_OK/WATER_TANK_NOT_OK` 及未初始化属性，且未挂入状态分发表，一旦误启用会立即崩溃）
 
-**`tick()` 执行逻辑：**
+**`run()` 执行逻辑（主循环每轮调用，2026-09-21 更正——入口为 `run()` 而非 tick()）：**
 ```
-1. 读取翅片温度/湿度
-2. 根据状态执行对应动作
-3. 更新 totalSprayCount 统计
+1. 更新 runTimeCounter——开机以来的单调秒数（ticks_ms 节拍差；2026-09-21 修复：原用墙钟 utime.time()，NTP 对时跳变会破坏喷雾延时判定）
+2. 读取翅片温度/湿度/湿球温度与空调霍尔状态
+3. 打印状态日志；每 3600s 落盘 totalSprayCount
+4. 按状态分发表执行当前状态动作（状态迁移见上表）
 ```
 
 ### 5.4 水循环状态机 (domain/WaterProcessFSM.py)
@@ -335,14 +343,15 @@ boot → WiFi 连接 → 传感器初始化 → Timer(1) 启动（1秒周期）
 | 2 | FILLING | 正在进水 |
 | 3 | DISCHARGING | 正在排水 |
 
-**补水逻辑：**
+**补水逻辑（计时基于 runTimeCounter 单调秒数，见 13.3）：**
 - 低水位触发进水
-- 进水量超 `waterFillTimeOut` → 超时退出
+- 进水时长超 `waterFillTimeOut` → 超时退出
 - 高水位检测到 → 停止进水
-- 进水量累计 → 更新 `totalAddWaterCount`
+- 补水累计 → 更新 `totalAddWaterCount`（两次补水间隔受 `minAddWaterInterval` 限制）
 
-**排水逻辑：**
+**排水逻辑（计时基于 runTimeCounter 单调秒数，见 13.3）：**
 - 当 TDS 超过阈值 `waterTDSThreshold` → 自动排水补水
+- 排水时长由 `waterDischargeTimeOut` 控制，结束后转入进水
 
 ### 5.5 sensorData (domain/sensorData.py) — 全局数据容器
 
@@ -447,7 +456,7 @@ thd = float(val)
 | 属性 | 值 |
 |------|-----|
 | 类型 | UART 水质传感器 |
-| 串口 | UART1, 38400bps |
+| 串口 | UART1, 9600bps（bsp 实例化时显式传入，TDS 模块固定波特率） |
 | 通道数 | 2（通道1=进水，通道2=水箱） |
 | 帧格式 | 18 字节（固定头 0xAA 0x55 + 数据 + 校验和） |
 | 热插拔 | ✅ 基本支持（UART 恢复稳定后可重新通信） |
@@ -584,7 +593,7 @@ thd = float(val)
 | 2 | 正常 |
 | 3 | 满 |
 
-**runTime 说明：** 本次开机以来运行的秒数（从 bootTime 起计时）
+**runTime 说明：** 本次开机以来运行的秒数，由主循环每轮毫秒精确累加（`runMs`），输出时才换算秒——与墙钟时间解耦，NTP 对时跳变不影响；且累计对象是每轮约 1s 的间隔，永远处于 `ticks_diff` 安全窗口（真实差值 < 2^29ms ≈ 6.21 天）内，长期运行不会回绕出错。`totalRunTime` 同为毫秒累计（`totalRunTimeMs`，DB 仍以秒存储，老数据兼容），每 3600 秒落盘一次；两个 FSM 内部的 `runTimeCounter` 采用同一模式（全部计时约定见 13.3）
 
 #### mode=set（设置参数）
 通过 query string 传入需要设置的参数，支持 UTF-8 编码：
@@ -765,20 +774,22 @@ main.py handler()
 ### 9.3 主循环数据流
 
 ```
-main.py sysTask() (while True)
+main.py 主循环 (while True)
     │
-    ├──► WaterProcessFSM.tick() → 控制进水/排水
-    │       ├── 读 sensorData.waterMark
-    │       ├── 读 sensorData.waterTankTDS（TDS 阈值判断）
-    │       └── 写 EV 电磁阀
+    ├──► updateAliveTick() → 刷新主循环活性时间戳（Timer(0) 据此条件喂狗，见 5.1）
     │
-    ├──► AotomizerFSM.tick() → 控制喷雾
-    │       ├── 读 sensorData.fineTemp / humi
-    │       ├── 读系统/喷雾使能开关
-    │       ├── 读 DBUtils 配置（阈值、周期）
-    │       └── 写电磁阀 + 水泵 + 风扇
+    ├──► 依次调度 FSM（fsmList 遍历 run()）
+    │       ├── AotomizerFSM.run() → 控制喷雾
+    │       │       ├── 读 sensorData.fineTemp / humi / wetBulbTemp
+    │       │       ├── 读空调霍尔状态（airConditionerStatus）
+    │       │       ├── 读 config 配置引用（阈值、周期；参数设置后经 reloadConfig 生效）
+    │       │       └── 写喷雾电磁阀 + 水泵
+    │       └── WaterProcessFSM.run() → 控制进水/排水
+    │               ├── 读 sensorData.waterMark
+    │               ├── 读 sensorData.waterTankTDS（TDS 阈值判断）
+    │               └── 写进水/废水电磁阀
     │
-    ├──► updateAliveTick() → 刷新主循环活性时间戳（Timer(0) 据此条件喂狗，见 5.1 看门狗机制）
+    ├──► tryNtpSync() → NTP 对时轮询（两阶段调度，见 13.1）
     │
     └──► 定时 DBUtils.save(totalRunTime / totalSprayCount ...)
 ```
@@ -861,6 +872,55 @@ def _parseBool(val):
 - 自动重连机制
 - IP 广播（UDP 广播到 LAN）
 
+### 13.1 NTP 网络对时 (domain/ntpSync.py)（2026-09-21 新增）
+
+**机制：**
+- 主循环每轮调用 `tryNtpSync()`：STA 已连接时才动作
+- **未同步**：每 60 秒重试一次，直到成功
+- **已同步**：每 **1 周**（`NTP_RESYNC_INTERVAL_S = 7×24×3600`）自动重新校时一次，校准 RTC 晶振漂移；校时失败则 RTC 保持原值继续走时，等待下个 1 周周期
+- `syncRtc()` 向 `ntp.aliyun.com:123` 发送 SNTP 请求（48 字节报文，超时 5s），取 UTC 秒数 + 8h（北京时间 UTC+8）写入 `machine.RTC()`
+- **失败不改动 RTC**
+- 对时成功前系统时间为 1970 起算的默认时间，日志时间戳无参考意义
+- 实现细节（跳变安全两阶段设计）：以 `ntpSynced`（首次校时成功标记）切换阶段——成功前只做 60s 重试（节流基于 `ticks_ms` 单调节拍，不受跳变影响）；成功后标记才置 True 并启用 1 周周期判断，`ntpLastSync` 在首次成功（时间跳变完成后）才取样，因此系统时间跳变不会污染周期调度
+
+**连带修复（重要）：** 开机运行时长原基于 `utime.time()` 差值计算——NTP 对时后系统时间向前跳变，会导致 `runTime`/`totalRunTime` 突变为巨大值。已改为 `utime.ticks_ms()` 节拍差计算，与墙钟时间完全解耦
+
+### 13.2 全局日志体系 (domain/LogUtils.py)（2026-09-21 重构）
+
+- 提供 `log(*args)`：输出 `[YYYY-MM-DD HH:MM:SS] 消息...`，时间来自系统时钟（NTP 对时后即为北京时间）
+- 全项目自有代码（main.py、domain/、driver/ 共 9 个文件）的 `print()` 已全部替换为 `log()`；`lib/microdot.py` 第三方库保持原样
+- 原 LogUtils 类（从未被使用）已删除
+
+### 13.3 计时机制约定（2026-09-21 确立）
+
+系统存在两类时间源，各司其职，**禁止混用**：
+
+| 类别 | 时间源 | 特性 | 用途 |
+|------|--------|------|------|
+| **单调节拍** | `utime.ticks_ms()` + `ticks_diff` | 与墙钟无关；注意 `ticks_diff` 仅在真实差值 < 2^29ms（≈6.21 天）时保证正确（ticks_ms 以 2^30ms 回绕） | 一切**时长/超时/周期**判定 |
+| **墙钟时间** | `utime.time()` / `utime.localtime()` / RTC | NTP 对时后为真实北京时间，但会被对时**跳变** | 日志时间戳、NTP 周期重校判断、对外展示 |
+
+**单调节拍使用点：**
+
+| 位置 | 变量 | 用途 |
+|------|------|------|
+| main.py 主循环 | `lastAliveTick` | 看门狗活性检测（30s 窗口，见 5.1） |
+| main.py 主循环 | `lastSysTick` → `runMs` | 本次开机运行毫秒累计，输出时换算秒（/status 返回，见 7.1） |
+| main.py sysTask | `lastSysTick` → `totalRunTimeMs` | 跨开机累计运行毫秒（DB 存秒），每 3600s 落盘 |
+| AotomizerFSM | `bootTickMs` → `runTimeCounter` | 喷雾延时判定（spray1/2/3TimeOut、sprayPeriod）与每小时统计落盘 |
+| WaterProcessFSM | `bootTickMs` → `runTimeCounter` | 进水/排水超时、`minAddWaterInterval` 补水间隔判定 |
+| NTP 调度 | `ntpLastTryTick` | 首次校时成功前的 60s 重试节流（见 13.1） |
+
+**墙钟使用点：**
+
+| 位置 | 用途 |
+|------|------|
+| LogUtils `log()` | 日志前缀 `[YYYY-MM-DD HH:MM:SS]`（对时成功前为 1970 起算的默认时间） |
+| NTP 两阶段调度 | `ntpSynced` 置位后按 `utime.time() - ntpLastSync` 判断 1 周重校 |
+| RTC | NTP 对时目标（北京时间 UTC+8，见 13.1） |
+
+> **背景教训：** NTP 对时使 `utime.time()` 从"1970 起算的开机秒数"向前跳变约 17 亿秒，任何基于墙钟差值的时长判定都会被跳变破坏——runTime 突变巨大值（13.1 连带修复）、FSM 延时立即超时（202609210007 修复）均源于此。新代码凡涉及时长判定必须走单调节拍。
+
 ---
 
 ## 14. 版本历史
@@ -874,16 +934,48 @@ def _parseBool(val):
 | 202606250000 | 2026-06-25 | 二次重构 TDS 驱动为异步非阻塞（消除 Timer 回调中的 sleep）；修复 BMP280 get() 方法 var1==0 时未重置 T/P 的问题；修复 BMP280 getAltitude() 未检查无效压力；修复前端 nv() 函数处理 0.0 值；修正所有驱动在读取失败时立即置为 -9999 的行为 |
 | 202609210000 | 2026-09-21 | **可靠性修复（深度分析 R1/R2/F6）**：R1 看门狗改为活性检测式喂狗——主循环每轮刷新 `lastAliveTick`，Timer(0) 回调仅在 30s 内有活性时喂狗，主循环卡死可触发 WDT 复位（原实现无条件喂狗，看门狗失效）；R2 DBUtils 增加模块级 `_thread` 锁，串行化 Web 线程与主线程的全部数据库操作，并改为 try/finally 保证异常时释放锁、关闭句柄（防 btree 并发损坏）；F6 修复 `/reset` 恢复出厂时 `db.delete()` 误传 list 导致接口 500 的问题 |
 | 202609210001 | 2026-09-21 | **确定性 Bug 修复（深度分析 F10/F11/F7）**：F10 启动配置加载与出厂默认合并（`dict(默认)+update(存储值)`），老 mydb 缺少新增字段不再导致升级后启动 KeyError 变砖，DB 损坏时回退默认；F11 删除 AotomizerFSM 中复制残留的死方法 `checkWaterMark()`（引用不存在的 STATUS 枚举与未初始化属性）；F7 `/setwifi` 增加必填参数校验（缺失返回 errCode=-1 而非 500），新增 `maskArgs()` 日志脱敏，`/setwifi`、`/reset`、`/restart` 不再明文打印密码 |
+| 202609210002 | 2026-09-21 | **功能修复（F1 + 喷雾时长算法）**：F1 启用第3路雾化电磁阀——`checkSpray2Timeout()` 恢复 `openPump()+openSparyEV3()`（原调用被注释导致 SPRAY_WATER_3 永远是1秒空过渡、EV3 从不动作），三路喷头轮流喷雾，各路时长一致；喷雾时长计算由阶梯式 if/elif 改为**线性+偏置**（fineLThreshold→minSparyTime，fineHThreshold→maxSparyTime，中间线性过渡、区间外钳位，配置异常时按最短时长兜底），`fineHThreshold` 由此参与控制 |
+| 202609210003 | 2026-09-21 | 喷雾时长算法定稿：线性+偏置计算基准时长，三路喷头不均分，按阀门安装位置（上→下=1/2/3）配比递减——阀门1=100%、阀门2=70%、阀门3=40%，不足 1 秒按 1 秒兜底 |
+| 202609210004 | 2026-09-21 | **新增 NTP 对时 + 全局日志时间戳**：新增 domain/ntpSync.py——WiFi 联网后从 ntp.aliyun.com 获取 UTC 时间写入 RTC（北京时间 UTC+8），失败不改动 RTC、每 60s 重试直到成功一次；LogUtils 重构为 `log()` 全局函数，全项目 print 输出统一带 `[日期 时间]` 前缀（microdot 除外）；连带修复 runTime/totalRunTime 隐患——改用 ticks_ms 节拍差计算，避免 NTP 对时跳变导致运行时长突变为巨大值 |
+| 202609210005 | 2026-09-21 | NTP 周期校时（两阶段设计）：由"成功一次后永久停止"改为"未同步每 60s 重试，首次成功后每 1 周自动重新校时"（校准 RTC 晶振漂移）；以 `ntpSynced` 首次成功标记切换阶段——60s 节流用 ticks_ms 单调节拍、1 周周期的 `ntpLastSync` 仅在首次成功（时间跳变完成后）取样，结构上消除系统时间跳变对调度的影响 |
+| 202609210006 | 2026-09-21 | **文档全量一致性刷新（无代码改动）**：5.3 喷雾逻辑重写为与代码一致（空调开 + 翅片温度 > fineLThreshold 触发、线性+偏置基准时长、三路 100%/70%/40% 配比），修正原"fineHThreshold+湿度"过期描述；FSM 入口方法名由 tick() 更正为 run()（5.1/5.3/9.3）；主循环职责与 9.3 数据流补充 tryNtpSync()；修正 TDS UART 波特率 38400→9600bps（bsp 实例化未传 baudrate，取驱动默认值，与 3.1/6.3 两处）；4.2 模块职责表补充 ntpSync/LogUtils；1.2 核心特性补充 NTP 对时与全局日志时间戳；重写 15 节 Known Issues 为当前真实遗留问题清单，并新增记录 FSM 墙钟节拍隐患（runTimeCounter 基于 utime.time()，NTP 跳变影响喷雾延时判定，见 15 节 #6） |
+| 202609210007 | 2026-09-21 | **修复 FSM 墙钟节拍隐患（NTP 跳变连带，15 节原 #6）**：AotomizerFSM 与 WaterProcessFSM 的 `runTimeCounter` 原基于墙钟 `utime.time()`——NTP 对时使系统时间向前跳变后，喷雾延时/进水超时/排水超时/补水间隔判定与 `% 3600` 统计落盘周期全部紊乱；改为开机以来的单调秒数（`bootTickMs = utime.ticks_ms()` + `ticks_diff(...) // 1000`，与 main.py runTime 修复同模式），两个 FSM 的全部差值比较逻辑无需改动即恢复正确，编号 #6 从 Known Issues 移除；同步更新文档——新增 13.3 节「计时机制约定」集中说明单调节拍与墙钟的分工，5.4 补水/排水逻辑标注计时来源，7.1 runTime 说明补充 FSM 一致性 |
+| 202609210008 | 2026-09-21 | **修复 runTime/totalRunTime 两个边界 bug（NTP 临界检查发现）**：NTP 对时本身不影响二者（RTC 跳变不动 ticks 时基，Web 线程并发读也安全），但发现：① `runTime` 原 = `ticks_diff(now, bootTickMs)//1000`——差值即开机时长，超过 `ticks_diff` 安全窗口（2^29ms ≈ 6.21 天）后变负数，12.42 天回绕后重新计数（长期运行呈锯齿错误）；② `totalRunTime` 每轮 `//1000` 整除丢弃毫秒余数且每轮刷新起点，长期累计偏慢 2~9%。改为**毫秒级累计式**：主循环每轮对 `runMs`/`totalRunTimeMs` 精确累加 `ticks_diff`（每轮间隔约 1s，恒在安全窗口内），`/status` 输出与落盘时才 `//1000` 换算秒——DB 存储格式不变（秒字符串），老数据兼容；13.3 节同步修正安全窗口表述 |
+| 202609210009 | 2026-09-21 | 小修两处：① 修正 AotomizerFSM 水不可用日志拼写 `Water inavailable` → `Water unavailable`；② bsp.py 实例化 TDS 时显式传入 `baudrate=9600`（此前依赖驱动默认值 9600 隐式生效，行为不变，显式化防驱动默认值变更导致波特率静默漂移）；6.3 节括号注释同步更新 |
 
 ---
 
 ## 15. 待办事项 / Known Issues
 
+（编号 F/R 引用自 2026-09-21 深度分析报告，便于追溯；已修复项见 14 节版本历史）
+
+**必修（功能正确性）：**
+
 | # | 描述 | 优先级 |
 |---|------|--------|
-| 1 | PWM4 通道硬件未接线，配置参数保留但无物理作用 | 低 |
-| 2 | boot.py 当前为空，可考虑启用 WeBREPL | 低 |
-| 3 | HDC1080 无硬件 CRC 校验，数据正确性依赖 I²C ACK | 中 |
-| 4 | BMP280 和 HDC1080 共用同一组 I²C 引脚，热插拔会相互影响 | 中 |
-| 5 | main.py status handler 中参数类型转换逻辑较分散，可考虑统一封装 | 低 |
-| 6 | 无 OTA 更新能力 | 低 |
+| 1 | F2+R7 安全开关未接入：BSP 已提供 `isSysEnabled()/isSprayEnabled()`，但 FSM 从未调用——系统使能断开时设备仍会喷雾（需先确认断开时正在喷雾的处理语义） | 高 |
+| 2 | F5 双 FSM 互斥：AotomizerFSM 与 WaterProcessFSM 可能同时操作电磁阀/水泵，冲突时序未定义 | 高 |
+| 3 | R4 Web 参数零校验：`/status?mode=set` 对数值无范围校验（如 min>max、频率 0），异常值可致运行异常 | 高 |
+| 4 | F4 TDS 自动换水策略需业务确认：现按 `waterTDSThreshold` 触发排水补水，阈值与频率待定 | 中 |
+| 5 | F3 湿度/湿球温度未参与喷雾控制（已采集并显示，控制仅用翅片温度） | 中 |
+
+**健壮性（建议）：**
+
+| # | 描述 | 优先级 |
+|---|------|--------|
+| 7 | R5 水位传感器读取无防抖/滤波，临界水位抖动可能误触补水 | 中 |
+| 8 | R6 BMP280 温度/气压/海拔分三次接口调用，各自独立触发 `get()`，同一周期内重复 I²C 读取 | 低 |
+| 9 | R3 BMP280/HDC1080 的 I²C 同步读取仍在 Timer(1) 回调中执行，总线异常时可能阻塞回调（TDS 已异步化） | 低 |
+| 10 | R10 统计数据周期性落盘存在 Flash 写入磨损 | 低 |
+| 11 | R12 广播 AP 常开：配网完成后 AP 未关闭，持续占用射频 | 低 |
+
+**低优先级：**
+
+| # | 描述 | 优先级 |
+|---|------|--------|
+| 12 | PWM4 通道硬件未接线，配置参数保留但无物理作用 | 低 |
+| 13 | boot.py 当前为空，可考虑启用 WebREPL | 低 |
+| 14 | HDC1080 无硬件 CRC 校验，数据正确性依赖 I²C ACK（见 6.2） | 中 |
+| 15 | BMP280 和 HDC1080 共用同一组 I²C 引脚，热插拔会相互影响 | 中 |
+| 16 | `/status` 参数类型转换逻辑较分散，可考虑表驱动统一封装 | 低 |
+| 17 | 无 OTA 更新能力 | 低 |

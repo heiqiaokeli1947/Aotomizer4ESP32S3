@@ -1,3 +1,4 @@
+from domain.LogUtils import log
 import btree
 import _thread
 
@@ -42,7 +43,7 @@ def closeDB():
 
 def testDB(prefix,count):
     global db
-    print("+++start insert. prefix:{},count:{}".format(prefix,count))
+    log("+++start insert. prefix:{},count:{}".format(prefix,count))
     dbLock.acquire()
     try:
         openDB()
@@ -51,17 +52,17 @@ def testDB(prefix,count):
             db[str(i)] = prefix+":"+str(i)
 
         closeDB()
-        print("insert finish.")
+        log("insert finish.")
 
-        print("---start query.")
+        log("---start query.")
         openDB()
         for key in db:
-            print("key:{},value:{}".format(key,db[key]))
+            log("key:{},value:{}".format(key,db[key]))
         closeDB()
     finally:
         closeDB()
         dbLock.release()
-    print("test db finish.")
+    log("test db finish.")
 
 def save(kv):
     if None == kv or len(kv) == 0:
@@ -123,7 +124,7 @@ def getAll(verbose=False):
             v = _to_str(db[key])
             res[k] = v
             if verbose:
-                print("key:{},value:{}".format(k, v))
+                log("key:{},value:{}".format(k, v))
     finally:
         closeDB()
         dbLock.release()
@@ -185,7 +186,7 @@ def contains(k):
 # db.flush()
 
 # # Prints b'two'
-# print(db[b"2"])
+# log(db[b"2"])
 
 # # Iterate over sorted keys in the database, starting from b"2"
 # # until the end of the database, returning only values.
@@ -194,18 +195,18 @@ def contains(k):
 # #   b'two'
 # #   b'three'
 # for word in db.values(b"2"):
-#     print(word)
+#     log(word)
 
 # del db[b"2"]
 
 # # No longer true, prints False
-# print(b"2" in db)
+# log(b"2" in db)
 
 # # Prints:
 # #  b"1"
 # #  b"3"
 # for key in db:
-#     print(key)
+#     log(key)
 
 # db.close()
 

@@ -1,3 +1,4 @@
+from domain.LogUtils import log
 import utime
 import driver.enum as enum
 import domain.DBUtils as db
@@ -15,6 +16,9 @@ class FSM:
         self.bspInstance = bspInstance
         self.config = config
         self.status = STATUS.INIT
+        # runTimeCounter 为开机以来的单调秒数（ticks_ms 节拍差），与墙钟解耦，
+        # NTP 对时跳变不再影响进水/排水超时与补水间隔判定（2026-09-21 修复）
+        self.bootTickMs = utime.ticks_ms()
         self.runTimeCounter = 0
 
         # 1=空 2=正常 3=满
@@ -73,7 +77,7 @@ class FSM:
 
 
     def close(self):
-        print("Water process FSM:close")
+        log("Water process FSM:close")
         self.setDeviceToReadyStatus()
         self.saveData()
 
@@ -85,7 +89,7 @@ class FSM:
             self.status = STATUS.READY
             # 关闭排水/进水电磁阀-->转移到self.setDeviceToReadyStatus()
         elif (self.lastAddWaterTime != 0) and (self.runTimeCounter - self.lastAddWaterTime < self.minAddWaterInterval):
-            print("[WARN]can not add water too frequent.last:{},now:{},interval:{}".format(self.lastAddWaterTime,
+            log("[WARN]can not add water too frequent.last:{},now:{},interval:{}".format(self.lastAddWaterTime,
                                                                                             self.runTimeCounter,
                                                                                             self.minAddWaterInterval))
             self.status = STATUS.READY
@@ -101,13 +105,13 @@ class FSM:
     def checkWaterTankFillTimeout(self):
         if self.runTimeCounter - self.waterFillStartTime >= self.waterFillTimeOut:
             #补水超时故障
-            print("[ERROR]fill water time out.")
+            log("[ERROR]fill water time out.")
             self.lastAddWaterTime = self.runTimeCounter
             self.status = STATUS.READY
             # 关闭排水/进水电磁阀-->转移到self.setDeviceToReadyStatus()
         elif self.waterMark == enum.WaterMark.FULL:
             #关闭补水设备，或者在READY里处理此设备
-            print("[OK]fill water to full success")
+            log("[OK]fill water to full success")
             self.lastAddWaterTime = self.runTimeCounter
             self.totalAddWaterCount += 1
             self.saveData()
@@ -116,20 +120,20 @@ class FSM:
             # 可以依赖Ready状态的设置，放这里是为了快速响应
             self.bspInstance.setEV(enum.EV.WATER_INPUT_EV, enum.Switch.OFF)
         else:  #未超时，继续补水
-            print("continue fill water.{}".format(self.waterFillTimeOut - (self.runTimeCounter - self.waterFillStartTime)))
+            log("continue fill water.{}".format(self.waterFillTimeOut - (self.runTimeCounter - self.waterFillStartTime)))
             return
 
     def checkWaterDischargeTimeout(self):
         if self.runTimeCounter - self.waterDischargeStartTime >= self.waterDischargeTimeOut:
             #排废水完成
-            print("water discharge finish.")
+            log("water discharge finish.")
             self.status = STATUS.WATER_DISCHARGE_OK
             # 启动进水
             self.bspInstance.setEV(enum.EV.WATER_INPUT_EV, enum.Switch.ON)
             self.bspInstance.setEV(enum.EV.WASTE_WATER_EV, enum.Switch.OFF)
             self.waterFillStartTime = self.runTimeCounter
         else:  #未超时，继续排废水
-            print("continue discharge water.{}".format(
+            log("continue discharge water.{}".format(
                 self.waterDischargeTimeOut - (self.runTimeCounter - self.waterDischargeStartTime)))
             return
 
@@ -155,27 +159,27 @@ class FSM:
 
     def initDevice(self):
         # 初始化设备
-        print("[WARN]Water process FSM:close all executor.")
+        log("[WARN]Water process FSM:close all executor.")
         self.setDeviceToReadyStatus()
         self.status = STATUS.READY
         return
     
     def run(self):
-        self.runTimeCounter = utime.time()
+        self.runTimeCounter = utime.ticks_diff(utime.ticks_ms(), self.bootTickMs) // 1000
         self.readSystemSensor()
-        print( "[{}]Water process FSM status:{},water mark:{},AC status:{},Add water count:{}".format(self.runTimeCounter, self.status, self.waterMark, self.airConditionerStatus, self.totalAddWaterCount))
+        log( "[{}]Water process FSM status:{},water mark:{},AC status:{},Add water count:{}".format(self.runTimeCounter, self.status, self.waterMark, self.airConditionerStatus, self.totalAddWaterCount))
 
         if (self.runTimeCounter % 3600) == 0:
             self.saveData()
-            print("WP FSM:save data to db finish.")
+            log("WP FSM:save data to db finish.")
 
-        func = self.switch.get(self.status, lambda: print("Water process FSM:status not define."))
+        func = self.switch.get(self.status, lambda: log("Water process FSM:status not define."))
         return func()
 
 # if __name__=="__main__":
 #     fsm = FSM()
 #
 #     for i in range(50):
-#         print("[tick]:{}".format(fsm.runTimeCounter))
+#         log("[tick]:{}".format(fsm.runTimeCounter))
 #         fsm.runTimeCounter = i
 #         fsm.run()

@@ -1,3 +1,4 @@
+from domain.LogUtils import log
 import utime
 import driver.enum as enum
 import domain.DBUtils as db
@@ -18,6 +19,9 @@ class FSM:
         self.bspInstance = bspInstance
         self.config = config
         self.status = STATUS.INIT
+        # runTimeCounter 为开机以来的单调秒数（ticks_ms 节拍差），与墙钟解耦，
+        # NTP 对时跳变不再影响喷雾延时判定与统计落盘（2026-09-21 修复）
+        self.bootTickMs = utime.ticks_ms()
         self.runTimeCounter = 0
 
         self.totalSprayCount = 0
@@ -42,7 +46,7 @@ class FSM:
         self.spray2TimeOut = 5
 
         self.spray3StartTime = 0
-        self.spray3TimeOut = 0
+        self.spray3TimeOut = 5
 
 
         self.finTemp = 0
@@ -76,7 +80,7 @@ class FSM:
         db.save({"totalSprayCount":str(self.totalSprayCount)})
 
     def reloadConfig(self):
-        print("reload config:{}".format(self.config))
+        log("reload config:{}".format(self.config))
         self.pwmFreq = int(self.config["pwm1freq"])
         self.pwmMinDuty = int(self.config["pwm1min"])
         self.pwmMaxDuty = int(self.config["pwm1max"])
@@ -88,7 +92,7 @@ class FSM:
         self.fineHThreshold = float(self.config["fineHThreshold"])
 
     def close(self):
-        print("Atomizer FSM:close")
+        log("Atomizer FSM:close")
         self.setDeviceToReadyStatus()
         self.saveData()
 
@@ -102,26 +106,32 @@ class FSM:
 
     def checkOverTemperature(self):
         if self.bspInstance.getWaterAvailableStatus() == False:
-            print("[ERROR]Water inavailable.")
+            log("[ERROR]Water unavailable.")
             self.status = STATUS.READY
         elif self.finTemp > self.fineLThreshold:
             self.status = STATUS.OVER_TEMP
             self.lastOverTempTime = self.runTimeCounter
             self.totalSprayCount += 1
             self.saveData()
-            # 根据温度计算额外喷雾时间: >38+1s, >39+2s, >40+3s, >41+4s
-            extra = 0
-            if self.finTemp > 41:
-                extra = 4
-            elif self.finTemp > 40:
-                extra = 3
-            elif self.finTemp > 39:
-                extra = 2
-            elif self.finTemp > 38:
-                extra = 1
-            self.spray1TimeOut = min(self.minSparyTime + extra, self.maxSparyTime)
-            self.spray2TimeOut = self.spray1TimeOut
-            print("over temp, need spray {}s.".format(self.spray1TimeOut))
+            # 线性+偏置计算喷雾基准时长：翅片温度=低温阈值(fineLThreshold)时为最短时长(minSparyTime)，
+            # 达到高温阈值(fineHThreshold)时为最长时长(maxSparyTime)，中间线性过渡，区间外钳位；
+            # 配置异常（高温阈值<=低温阈值）时按最短时长兜底
+            tempSpan = self.fineHThreshold - self.fineLThreshold
+            ratio = 0.0
+            if tempSpan > 0:
+                ratio = (self.finTemp - self.fineLThreshold) / tempSpan
+                if ratio < 0:
+                    ratio = 0.0
+                elif ratio > 1:
+                    ratio = 1.0
+            sprayTime = int(self.minSparyTime + (self.maxSparyTime - self.minSparyTime) * ratio)
+            # 各路以基准时长为基准，按阀门安装位置（上→下=1/2/3）配比递减：
+            # 阀门1=100%，阀门2=70%，阀门3=40%，不足1秒按1秒兜底
+            self.spray1TimeOut = sprayTime
+            self.spray2TimeOut = max(1, int(sprayTime * 0.7))
+            self.spray3TimeOut = max(1, int(sprayTime * 0.4))
+            log("over temp, finTemp:{}, base {}s, spray {}/{}/{}s.".format(
+                self.finTemp, sprayTime, self.spray1TimeOut, self.spray2TimeOut, self.spray3TimeOut))
         else:
             self.status = STATUS.READY
 
@@ -132,24 +142,24 @@ class FSM:
         self.bspInstance.setWaterPump(0)
 
     def openSparyEV1(self):
-        print("spray 1...............")
+        log("spray 1...............")
         self.bspInstance.setEV(enum.EV.WATER_SPRAY_EV_1, enum.Switch.ON)
         self.bspInstance.setEV(enum.EV.WATER_SPRAY_EV_2, enum.Switch.OFF)
         self.bspInstance.setEV(enum.EV.WATER_SPRAY_EV_3, enum.Switch.OFF)
         self.spray1StartTime = self.runTimeCounter
 
     def openSparyEV2(self):
-        print("spray 2...............")
+        log("spray 2...............")
         self.bspInstance.setEV(enum.EV.WATER_SPRAY_EV_1, enum.Switch.OFF)
         self.bspInstance.setEV(enum.EV.WATER_SPRAY_EV_2, enum.Switch.ON)
         self.bspInstance.setEV(enum.EV.WATER_SPRAY_EV_3, enum.Switch.OFF)
         self.spray2StartTime = self.runTimeCounter
 
     def openSparyEV3(self):
-        print("spray 3...............")
+        log("spray 3...............")
         self.bspInstance.setEV(enum.EV.WATER_SPRAY_EV_1, enum.Switch.OFF)
         self.bspInstance.setEV(enum.EV.WATER_SPRAY_EV_2, enum.Switch.OFF)
-        self.bspInstance.setEV(enum.EV.WATER_SPRAY_EV_3, enum.Switch.ON)  #暂时没有这个电磁阀
+        self.bspInstance.setEV(enum.EV.WATER_SPRAY_EV_3, enum.Switch.ON)
         self.spray3StartTime = self.runTimeCounter
 
     def closeAllSparyEV(self):
@@ -164,7 +174,7 @@ class FSM:
     def checkSpray1Timeout(self):
         if self.runTimeCounter - self.spray1StartTime >= self.spray1TimeOut:
             # 关闭喷水设备，或者在READY里处理此设备
-            print("spray 1 finish.")
+            log("spray 1 finish.")
             self.status = STATUS.SPRAY_WATER_2
             self.openPump()
             self.openSparyEV2()
@@ -173,20 +183,17 @@ class FSM:
 
     def checkSpray2Timeout(self):
         if self.runTimeCounter - self.spray2StartTime >= self.spray2TimeOut:
-            # 关闭喷水设备，或者在READY里处理此设备
-            print("spray 2 finish.")
+            log("spray 2 finish.")
             self.status = STATUS.SPRAY_WATER_3
-            #self.openPump() 暂时没有这个电磁阀
-            #self.openSparyEV3()
-            self.closeAllSparyEV()
-            self.closePump()
+            self.openPump()
+            self.openSparyEV3()
         else:
             return
 
     def checkSpray3Timeout(self):
         if self.runTimeCounter - self.spray3StartTime >= self.spray3TimeOut:
             # 关闭喷水设备，或者在READY里处理此设备
-            print("spray 3 finish.")
+            log("spray 3 finish.")
             self.closeAllSparyEV()
             self.closePump()
             self.lastSprayTime = self.runTimeCounter
@@ -196,7 +203,7 @@ class FSM:
 
     def checkSprayDelayTimeout(self):
         if self.runTimeCounter - self.lastSprayTime >= self.sprayPeriod:
-            print("spray delay finish.")
+            log("spray delay finish.")
             # 关闭喷水设备，或者在READY里处理此设备-->转移到self.setDeviceToReadyStatus()
             # self.closeAllSparyEV()
             self.status = STATUS.READY
@@ -225,28 +232,28 @@ class FSM:
 
     def initDevice(self):
         # 初始化设备
-        print("[WARN]Atomizer FSM:close all executor.")
+        log("[WARN]Atomizer FSM:close all executor.")
         self.setDeviceToReadyStatus()
         self.status = STATUS.READY
         return
     
     def run(self):
-        self.runTimeCounter = utime.time()
+        self.runTimeCounter = utime.ticks_diff(utime.ticks_ms(), self.bootTickMs) // 1000
         self.readSystemSensor()
-        print( "[{}]Atomizer FSM status:{},fineTemp:{},tempThd:{},humi:{},TS:{},Spray count:{},AC status:{}".format(self.runTimeCounter, self.status, self.finTemp, self.fineLThreshold, self.humity, self.wetBulbTemp, self.totalSprayCount, self.airConditionerStatus))
+        log( "[{}]Atomizer FSM status:{},fineTemp:{},tempThd:{},humi:{},TS:{},Spray count:{},AC status:{}".format(self.runTimeCounter, self.status, self.finTemp, self.fineLThreshold, self.humity, self.wetBulbTemp, self.totalSprayCount, self.airConditionerStatus))
 
         if (self.runTimeCounter % 3600) == 0:
             self.saveData()
-            print("AM FSM:save data to db finish.")
+            log("AM FSM:save data to db finish.")
 
 
-        func = self.switch.get(self.status, lambda: print("Atomizer FSM:status not define."))
+        func = self.switch.get(self.status, lambda: log("Atomizer FSM:status not define."))
         return func()
 
 # if __name__=="__main__":
 #     fsm = FSM()
 #
 #     for i in range(50):
-#         print("[tick]:{}".format(fsm.timeCounter))
+#         log("[tick]:{}".format(fsm.timeCounter))
 #         fsm.timeCounter = i
 #         fsm.run()

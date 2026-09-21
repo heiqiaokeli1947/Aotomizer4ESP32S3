@@ -2,6 +2,7 @@
 #from machine import Pin
 
 # 操作时间 延迟几秒等
+from domain.LogUtils import log
 import time
 # 网络相关的函数
 import network
@@ -15,43 +16,43 @@ def connectToWifi(ssid, pwd):
     wlan = network.WLAN(network.STA_IF)
     # 激活
     wlan.active(True)
-    print("init wifi...")
+    log("init wifi...")
     try:
         #  连接超时设置
         start_time = time.time()
-        print("start time:{}".format(start_time))
+        log("start time:{}".format(start_time))
         if not wlan.isconnected():
-            print("try to connect ssid:{} pwd:{}".format(ssid, pwd))
+            log("try to connect ssid:{} pwd:{}".format(ssid, pwd))
             wlan.connect(ssid, pwd)
             while not wlan.isconnected():
-                print("connect failed,sleep 1s")
+                log("connect failed,sleep 1s")
                 time.sleep(1)
                 # 15秒内没连接上就是超时了
-                print("now time:{}".format(time.time()))
+                log("now time:{}".format(time.time()))
                 us = time.time() - start_time
-                print("use time:{}".format(us))
+                log("use time:{}".format(us))
                 if us > 35:
-                    print("connect wifi timeout.")
+                    log("connect wifi timeout.")
                     #wlan.active(False)
                     return False
-            print("connect success.")
+            log("connect success.")
             #light.value(1)
             # 打印 网络信息
-            print("ifconfig:", wlan.ifconfig())
+            log("ifconfig:", wlan.ifconfig())
             return True
         else:
-            print("connect success.")
+            log("connect success.")
             #light.value(1)
             # 打印 网络信息
-            print("ifconfig:", wlan.ifconfig())
+            log("ifconfig:", wlan.ifconfig())
             return True
     except Exception as e:
         sys.print_exception(e)
-        print('connect exception.')
+        log('connect exception.')
         #wlan.active(False)
         return False
     finally:
-        print('connectWiFi finish')
+        log('connectWiFi finish')
 
 
 def getStationIP():
@@ -63,11 +64,11 @@ def getStationIP():
 
 
 def testWifiConnect(ssid, pwd):
-    print("try to connect ssid:{} pwd:{}".format(ssid, pwd))
+    log("try to connect ssid:{} pwd:{}".format(ssid, pwd))
     # wifi模式
     wlan = network.WLAN(network.STA_IF)
     # 激活
-    print("init wifi...")
+    log("init wifi...")
     wlan.active(False)
     time.sleep(1)
     wlan.active(True)
@@ -75,28 +76,28 @@ def testWifiConnect(ssid, pwd):
     try:
         #  连接超时设置
         start_time = time.time()
-        print("start time:{}".format(start_time))
+        log("start time:{}".format(start_time))
         wlan.connect(ssid, pwd)
         while not wlan.isconnected():
-            print("sleep 1s then retry.")
+            log("sleep 1s then retry.")
             time.sleep(1)
             # 15秒内没连接上就是超时了
-            #print("now time:{}".format(time.time()))
+            #log("now time:{}".format(time.time()))
             us = time.time() - start_time
-            #print("use time:{}".format(us))
+            #log("use time:{}".format(us))
             if us > 35:
-                print("test connect failed by timeout.")
+                log("test connect failed by timeout.")
                 return False
         # 打印 网络信息
-        print("test connect success! ifconfig:", wlan.ifconfig())
+        log("test connect success! ifconfig:", wlan.ifconfig())
         return True
     except Exception as e:
         sys.print_exception(e)
-        print('test connect exception.')
+        log('test connect exception.')
         #wlan.active(False)
         return False
     finally:
-        print('test connect WiFi finish.')
+        log('test connect WiFi finish.')
 
 
 def startAP(apname, appwd, forConfig=False):
@@ -111,19 +112,19 @@ def startAP(apname, appwd, forConfig=False):
             tmpName = apname + "_" + ap.ifconfig()[0]
         else:
             tmpName = apname
-        print("start ap:{},{}".format(tmpName, appwd))
+        log("start ap:{},{}".format(tmpName, appwd))
         # 设置接入点参数
         ap.config(essid=tmpName, authmode=network.AUTH_WPA_WPA2_PSK, password=appwd)
         # 输出接入点IP地址
-        print('AP IP address:{}'.format(tmpName))
+        log('AP IP address:{}'.format(tmpName))
         return True
     except Exception as e:
         sys.print_exception(e)
-        print('start AP exception.')
+        log('start AP exception.')
         #ap.active(False)
         return False
     finally:
-        print('start AP finish.')
+        log('start AP finish.')
 
 
 def startBroadcastAP(apname, appwd):
@@ -134,10 +135,10 @@ def startBroadcastAP(apname, appwd):
         return True
     except Exception as e:
         sys.print_exception(e)
-        print('start AP exception.')
+        log('start AP exception.')
         return False
     finally:
-        print('start AP finish.')
+        log('start AP finish.')
 
 
 def getAPIP():
@@ -150,17 +151,17 @@ def getAPIP():
 
 def stopAP():
     try:
-        print('stop AP...')
+        log('stop AP...')
         ap = network.WLAN(network.AP_IF)
         ap.active(False)
         return True
     except Exception as e:
         sys.print_exception(e)
-        print('stop AP exception.')
+        log('stop AP exception.')
         #ap.active(False)
         return False
     finally:
-        print('stop AP finish.')
+        log('stop AP finish.')
 
 
 def isConnected():
@@ -170,7 +171,7 @@ def isConnected():
 
 def scanAP():
     try:
-        print('scan AP...')
+        log('scan AP...')
         wlan = network.WLAN(network.STA_IF)
         wlan.active(True)
         res = wlan.scan()  #(ssid, bssid, channel, RSSI, security, hidden)
@@ -178,11 +179,11 @@ def scanAP():
         for item in res:
             if len(item[0]) != 0:
                 result[item[0]] = item[3]
-        print('Find AP:{}'.format(result))
+        log('Find AP:{}'.format(result))
         return result
     except Exception as e:
         sys.print_exception(e)
-        print('scan AP exception.')
+        log('scan AP exception.')
         return {}
     finally:
-        print('scan AP finish.')
+        log('scan AP finish.')

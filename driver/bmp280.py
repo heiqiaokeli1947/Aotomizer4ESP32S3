@@ -1,3 +1,6 @@
+from domain.LogUtils import log
+
+
 class BMP280():
     ADDRESS = 0x76
     
@@ -28,7 +31,7 @@ class BMP280():
 
     def initHardware(self):
         i2c_devices = self.i2c.scan()
-        #print(i2c_devices)
+        #log(i2c_devices)
         
         if self.ADDRESS not in i2c_devices:
             self.hardWareReady = False
