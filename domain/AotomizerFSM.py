@@ -92,27 +92,6 @@ class FSM:
         self.setDeviceToReadyStatus()
         self.saveData()
 
-    def checkWaterMark(self):
-        #初始化所有执行器
-        self.setDeviceToReadyStatus()
-
-        if enum.WaterMark.NORMAL == self.bspInstance.getWaterTankStatus() or enum.WaterMark.FULL == self.bspInstance.getWaterTankStatus():
-            self.status = STATUS.WATER_TANK_OK
-            # 关闭排水/进水电磁阀-->转移到self.setDeviceToReadyStatus()
-        elif (self.lastAddWaterTime != 0) and (self.runTimeCounter - self.lastAddWaterTime < self.addWaterMinInterval):
-            print("[ERROR]can not add water too frequent.last:{},now:{},interval:{}".format(self.lastAddWaterTime,
-                                                                                            self.runTimeCounter,
-                                                                                            self.addWaterMinInterval))
-            self.status = STATUS.READY
-        else:
-            self.status = STATUS.WATER_TANK_NOT_OK
-            # 启动排废水
-            self.bspInstance.setEV(enum.EV.WASTE_WATER_EV, enum.Switch.ON)
-            #bsp.setEV(enum.EV.WATER_INPUT_EV, 0)#-->转移到self.setDeviceToReadyStatus()
-            # 关闭所有喷水电磁阀-->转移到self.setDeviceToReadyStatus()
-            # 关闭水泵-->转移到self.setDeviceToReadyStatus()
-            self.waterDischargeStartTime = self.runTimeCounter
-
     def checkAirConditionerStatus(self):
         if self.airConditionerStatus == enum.Switch.ON:
             self.status = STATUS.AIR_CONDITIONER_ON

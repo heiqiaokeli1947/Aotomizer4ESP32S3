@@ -81,13 +81,24 @@ defaulteSystemConfig = {
 systemConfig = db.get("systemConfig")
 
 if systemConfig is not None:
-    systemConfig = ujson.loads(systemConfig)
+    stored = None
+    try:
+        stored = ujson.loads(systemConfig)
+    except ValueError:
+        pass
+    if not isinstance(stored, dict):
+        print("[ERROR]systemConfig in DB invalid, fallback to defaults.")
+        stored = {}
+    # F10：与出厂默认配置合并——老数据库缺少的新增字段取默认值，
+    # 防止固件升级后访问缺失字段 KeyError 导致启动失败（合并结果在下次保存配置时落库）
+    systemConfig = dict(defaulteSystemConfig)
+    systemConfig.update(stored)
     print("systemConfig in DB:{}".format(systemConfig))
 else:
     print("create default systemConfig:{}...".format(
         ujson.dumps(defaulteSystemConfig)))
     db.save({"systemConfig": ujson.dumps(defaulteSystemConfig)})
-    systemConfig = ujson.loads(db.get("systemConfig"))
+    systemConfig = dict(defaulteSystemConfig)
 
 # 初始化设备 UUID
 if "deviceId" not in systemConfig or not systemConfig["deviceId"]:
@@ -100,7 +111,7 @@ else:
 
 def createDefaultConfig():
     print("create default config...")
-    db.delete(["systemConfig"])
+    db.delete("systemConfig")
     db.save({"systemConfig": ujson.dumps(defaulteSystemConfig)})
 
 loopCounter = 0  # 循环计数器，用于定时判断
@@ -142,11 +153,27 @@ def reloadConfigFSM():
 # 初始化看门狗定时器，超时时间为60秒
 wdt = machine.WDT(timeout=60000)
 
+# 主循环活性检测：主循环每轮调用updateAliveTick()刷新时间戳，
+# feedDog仅在主循环存活时喂狗；主循环卡死则停止喂狗，由WDT触发芯片复位。
+# （修复R1：原实现由Timer回调无条件喂狗，主循环卡死时看门狗永远不会复位）
+lastAliveTick = utime.ticks_ms()
+ALIVE_TIMEOUT_MS = 30000  # 主循环超过30秒未刷新视为卡死（正常每轮约1秒）
+
+
+def updateAliveTick():
+    global lastAliveTick
+    lastAliveTick = utime.ticks_ms()
+
 
 def feedDog(timer):
-    global loopCounter
-    wdt.feed()
-    print("{}:feed dog-----------".format(loopCounter))
+    global lastAliveTick
+    now = utime.ticks_ms()
+    if utime.ticks_diff(now, lastAliveTick) < ALIVE_TIMEOUT_MS:
+        wdt.feed()
+        print("{}:feed dog-----------".format(loopCounter))
+    else:
+        print("[WARN]main loop blocked {}ms, stop feeding WDT.".format(
+            utime.ticks_diff(now, lastAliveTick)))
 
 
 WDTTimer = Timer(0)
@@ -444,6 +471,12 @@ def handler(request):
         return "{}"
 
 
+def maskArgs(args):
+    # F7：日志脱敏——过滤密码类参数，避免密码明文进入系统日志
+    return {k: v for k, v in args.items()
+            if k not in ("pwd", "devicepwd", "APPwd")}
+
+
 # setwifi?ssid=3&pwd=123456&serverurl=192.168.1.124&devicepwd=pengping
 # &devicename=----&sw1name=----&sw2name=----
 @app.get('/setwifi')
@@ -452,7 +485,14 @@ def handler(request):
     whenGotoConfigMode = utime.time()
     res = {"errCode": "0", "msg": "success", "APName": "APName", "url": "url"}
     print("setwifi:path:{} ".format(request.path))
-    print("setwifi:args:{}".format(request.args))
+    print("setwifi:args:{}".format(maskArgs(request.args)))
+    # F7：必填参数校验，缺失时返回错误码而不是抛 KeyError 导致 500
+    required = ("ssid", "pwd", "devicename", "devicepwd", "serverurl", "sw1name", "sw2name")
+    missing = [k for k in required if k not in request.args or request.args[k] == ""]
+    if len(missing) > 0:
+        res["errCode"] = "-1"
+        res["msg"] = "missing required params:{}".format(",".join(missing))
+        return ujson.dumps(res)
     ssid = request.args["ssid"]
     pwd = request.args["pwd"]
     if wifi.testWifiConnect(ssid, pwd):
@@ -501,7 +541,7 @@ def handler(request):
     whenGotoConfigMode = utime.time()
     res = {"errCode": "0", "msg": "success"}
     print("reset:path:{} ".format(request.path))
-    print("reset:args:{}".format(request.args))
+    print("reset:args:{}".format(maskArgs(request.args)))
 
     if "devicepwd" in request.args and request.args["devicepwd"] == systemConfig["devicepwd"]:
         print("reset after 5s.")
@@ -522,7 +562,7 @@ def handler(request):
     whenGotoConfigMode = utime.time()
     res = {"errCode": "0", "msg": "success"}
     print("restart:path:{} ".format(request.path))
-    print("restart:args:{}".format(request.args))
+    print("restart:args:{}".format(maskArgs(request.args)))
 
     if "devicepwd" in request.args and request.args["devicepwd"] == systemConfig["devicepwd"]:
         print("reboot after 5s.")
@@ -558,6 +598,8 @@ def sysTask():
 
 
 while True:
+    updateAliveTick()
+
     sysTask()
 
     # 运行状态机

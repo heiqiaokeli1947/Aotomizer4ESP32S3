@@ -200,11 +200,24 @@ boot → WiFi 连接 → 传感器初始化 → Timer(1) 启动（1秒周期）
   → Web 服务启动 → 主循环（FSM 调度 + WDT 喂狗 + 数据保存）
 ```
 
+**启动配置加载（2026-09-21 修复 F10）：**
+- 从 DB 读取 `systemConfig` 后与 `defaulteSystemConfig` 合并：`dict(默认值) + update(存储值)`
+- 老数据库缺少的新增字段自动取默认值，防止固件升级后访问缺失字段 KeyError 导致启动失败
+- DB 内容损坏（JSON 解析失败或非 dict）时整体回退出厂默认，保证设备总能启动
+- 合并结果不立即落库（避免每次开机写 Flash），下次保存配置时自然持久化
+
 **主循环职责：**
-1. 调度 `WaterProcessFSM.tick()`
-2. 调度 `AotomizerFSM.tick()`
-3. WDT 喂狗
+1. 刷新主循环活性时间戳 `updateAliveTick()`
+2. 调度 `WaterProcessFSM.tick()`
+3. 调度 `AotomizerFSM.tick()`
 4. 定时保存传感器数据到数据库
+
+**看门狗机制（活性检测式喂狗，2026-09-21 修复 R1）：**
+- WDT 超时 60s；Timer(0) 每 15s 触发 `feedDog` 回调
+- 回调仅在 `utime.ticks_diff(now, lastAliveTick) < 30s` 时喂狗，否则打印告警并停止喂狗
+- 主循环卡死 → 时间戳停止刷新 → 停止喂狗 → WDT 触发芯片复位
+- 原实现由 Timer 回调无条件喂狗，主循环卡死时看门狗完全失效，已修复
+- 30s 阈值安全性：开机 WiFi 连接最长阻塞 35s，但期间 t=15s/30s 两次喂狗仍在活性窗口内，主循环启动后立即刷新时间戳，不会误复位
 
 **Timer 回调 (`timerHandler`)：** 每 1 秒触发
 1. 调用 BSP 的 `readBmp280` → 气压/温度/海拔
@@ -287,14 +300,21 @@ boot → WiFi 连接 → 传感器初始化 → Timer(1) 启动（1秒周期）
 - 单次喷雾时长 ≥ `maxSparyTime` → 强制停止
 - 喷雾间隔 ≥ `sprayPeriod` → 允许再次喷雾
 
-**状态枚举（STATUS）：**
+> 注：当前代码实际判定条件为"空调开启 且 翅片温度 > fineLThreshold"，`fineHThreshold`/湿度/湿球温度尚未参与控制（待业务确认）。
+
+**状态枚举（STATUS，与代码一致）：**
 | 状态值 | 名称 | 说明 |
 |--------|------|------|
-| 0 | IDLE | 空闲 |
-| 1 | SPRAY_WATER_1 | 喷雾通道1 |
-| 2 | SPRAY_WATER_2 | 喷雾通道2 |
-| 3 | SPRAY_WATER_3 | 喷雾通道3 |
-| 4 | WAIT_NEXT_PERIOD | 等待下一个喷雾周期 |
+| 0 | INIT | 初始化（初始化所有执行器到安全态） |
+| 1 | READY | 就绪（等待空调开启） |
+| 2 | AIR_CONDITIONER_ON | 空调运行中（检查是否超温） |
+| 3 | OVER_TEMP | 翅片超温（检查水可用性，进入喷雾序列） |
+| 4 | SPRAY_WATER_1 | 喷雾通道1（openSparyEV1，计时 spray1TimeOut） |
+| 5 | SPRAY_WATER_2 | 喷雾通道2（openSparyEV2） |
+| 6 | SPRAY_WATER_3 | 喷雾通道3（openSparyEV3 调用被注释，1秒空过渡） |
+| 7 | SPRAY_DELAY | 喷雾延时（等待 sprayPeriod） |
+
+（2026-09-21 修复 F11：删除了从 WaterProcessFSM 复制残留的死方法 `checkWaterMark()`——它引用了本类 STATUS 中不存在的 `WATER_TANK_OK/WATER_TANK_NOT_OK` 及未初始化属性，且未挂入状态分发表，一旦误启用会立即崩溃）
 
 **`tick()` 执行逻辑：**
 ```
@@ -355,30 +375,33 @@ boot → WiFi 连接 → 传感器初始化 → Timer(1) 启动（1秒周期）
 
 **重要限制：** BTree 数据库 key 和 value 均为字符串类型，所有值需序列化存储。
 
-**提供方法：**
+**线程安全（2026-09-21 修复 R2）：** 模块级 `dbLock = _thread.allocate_lock()`，Web 线程与主线程的所有数据库操作通过该锁串行化（btree 非线程安全，并发写可导致数据库损坏）。所有公开方法采用 `acquire → try/finally（操作 + closeDB + release）` 模式，任何异常都能保证释放锁并关闭数据库句柄。
+
+**提供方法（模块级函数，非类）：**
 
 | 方法 | 功能 |
 |------|------|
-| `openDB()` | 打开/创建数据库 |
-| `closeDB()` | 关闭数据库 |
-| `save(key, value)` | 保存 KV（自动 flush） |
-| `get(key, default="")` | 读取 KV，不存在返回默认值 |
+| `openDB()` / `closeDB()` | 打开/关闭数据库（由各方法内部调用） |
+| `save(kv)` | 批量保存 KV dict（自动 flush） |
+| `get(k)` | 读取 KV，不存在返回 None |
+| `multiGet(keys)` | 批量读取，缺失 key 返回 None |
 | `getAll(verbose=False)` | 读取全部 KV 到 dict |
-| `set(k, v)` | 直接设置 KV（调用 save） |
-| `delete(key)` | 删除 KV |
+| `set(k, v)` | 设置单个 KV |
+| `delete(k)` | 删除 KV（参数为标量 key，不能传 list） |
 | `count()` | 返回 KV 总数 |
-| `contains(key)` | 检查 key 是否存在 |
+| `contains(k)` | 检查 key 是否存在 |
 
 **使用示例：**
 ```python
-from domain.DBUtils import DBUtils
-DBUtils.save("fineHThreshold", "36.0")
-val = DBUtils.get("fineHThreshold")  # 返回 "36.0"
+import domain.DBUtils as db
+db.save({"fineHThreshold": "36.0"})
+val = db.get("fineHThreshold")  # 返回 "36.0"
 ```
 
 **类型转换注意：** DB 中存储的是字符串，使用时需要手动转换：
 ```python
-thd = float(DBUtils.get("fineHThreshold", "36.0"))
+val = db.get("fineHThreshold") or "36.0"  # get 不带默认值参数，需自行处理 None
+thd = float(val)
 ```
 
 ---
@@ -591,14 +614,16 @@ thd = float(DBUtils.get("fineHThreshold", "36.0"))
 ### 7.3 `/setwifi` — 设置 WiFi
 
 ```
-/setwifi?ssid=xxx&pwd=xxx
+/setwifi?ssid=xxx&pwd=xxx&devicename=xxx&devicepwd=xxx&serverurl=xxx&sw1name=xxx&sw2name=xxx
 ```
 
-设置后立即尝试连接，可通过 `/scanap` 确认。
+设置后立即尝试连接，连接成功保存配置并在 10 秒后重启进入 normal 模式，可通过 `/scanap` 确认。
+（2026-09-21 修复 F7：①必填参数校验——ssid/pwd/devicename/devicepwd/serverurl/sw1name/sw2name 缺失或为空时返回 `errCode=-1` 及缺失参数名列表，不再抛 KeyError 500；②日志脱敏——新增 `maskArgs()` 过滤 pwd/devicepwd/APPwd，`/setwifi`、`/reset`、`/restart` 的日志不再明文打印密码）
 
 ### 7.4 `/reset` — 恢复出厂
 
-清除所有用户配置，恢复默认值。
+校验 `devicepwd` 后删除数据库中的 `systemConfig` 键并写入默认配置，5 秒后自动重启。
+（2026-09-21 修复 F6：原实现误将 list 传给 `db.delete()`，导致接口抛异常、恢复出厂功能不可用）
 
 ### 7.5 `/restart` — 重启设备
 
@@ -753,7 +778,7 @@ main.py sysTask() (while True)
     │       ├── 读 DBUtils 配置（阈值、周期）
     │       └── 写电磁阀 + 水泵 + 风扇
     │
-    ├──► WDT.feed()
+    ├──► updateAliveTick() → 刷新主循环活性时间戳（Timer(0) 据此条件喂狗，见 5.1 看门狗机制）
     │
     └──► 定时 DBUtils.save(totalRunTime / totalSprayCount ...)
 ```
@@ -847,6 +872,8 @@ def _parseBool(val):
 | 202606230003 | 2026-06-23 | 增加 DBUtils 新增方法说明、热插拔分析、I²C 通信距离 |
 | 202606240000 | 2026-06-24 | **全量刷新**：纠正 PWM 引脚映射表（PWM1=Pin10水泵, PWM2=Pin46风扇电源, PWM3=Pin9风扇转速）；重写系统架构图；补充 TDS 异步状态机设计；增加无效值体系说明；完善前端架构描述；补充 runTime/waterTDSThreshold 等新增参数；更新传感器热插拔支持说明 |
 | 202606250000 | 2026-06-25 | 二次重构 TDS 驱动为异步非阻塞（消除 Timer 回调中的 sleep）；修复 BMP280 get() 方法 var1==0 时未重置 T/P 的问题；修复 BMP280 getAltitude() 未检查无效压力；修复前端 nv() 函数处理 0.0 值；修正所有驱动在读取失败时立即置为 -9999 的行为 |
+| 202609210000 | 2026-09-21 | **可靠性修复（深度分析 R1/R2/F6）**：R1 看门狗改为活性检测式喂狗——主循环每轮刷新 `lastAliveTick`，Timer(0) 回调仅在 30s 内有活性时喂狗，主循环卡死可触发 WDT 复位（原实现无条件喂狗，看门狗失效）；R2 DBUtils 增加模块级 `_thread` 锁，串行化 Web 线程与主线程的全部数据库操作，并改为 try/finally 保证异常时释放锁、关闭句柄（防 btree 并发损坏）；F6 修复 `/reset` 恢复出厂时 `db.delete()` 误传 list 导致接口 500 的问题 |
+| 202609210001 | 2026-09-21 | **确定性 Bug 修复（深度分析 F10/F11/F7）**：F10 启动配置加载与出厂默认合并（`dict(默认)+update(存储值)`），老 mydb 缺少新增字段不再导致升级后启动 KeyError 变砖，DB 损坏时回退默认；F11 删除 AotomizerFSM 中复制残留的死方法 `checkWaterMark()`（引用不存在的 STATUS 枚举与未初始化属性）；F7 `/setwifi` 增加必填参数校验（缺失返回 errCode=-1 而非 500），新增 `maskArgs()` 日志脱敏，`/setwifi`、`/reset`、`/restart` 不再明文打印密码 |
 
 ---
 

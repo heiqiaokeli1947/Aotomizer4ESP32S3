@@ -1,13 +1,17 @@
 import btree
+import _thread
 
 # First, we need to open a stream which holds a database
 # This is usually a file, but can be in-memory database
 # using uio.BytesIO, a raw flash partition, etc.
-# Oftentimes, you want to create a database file if it doesn't
+# Oftentimes, you want to create a database if it doesn't
 # exist and open if it exists. Idiom below takes care of this.
 # DO NOT open database with "a+b" access mode.
 db=None
 dbFile=None
+# 多线程锁：Web线程与主线程会并发访问数据库，btree非线程安全，
+# 所有读写操作必须通过dbLock串行化，否则可能导致数据库损坏（修复R2）
+dbLock = _thread.allocate_lock()
 
 def openDB():
     global db
@@ -39,51 +43,68 @@ def closeDB():
 def testDB(prefix,count):
     global db
     print("+++start insert. prefix:{},count:{}".format(prefix,count))
-    openDB()
+    dbLock.acquire()
+    try:
+        openDB()
 
-    for i in range(count):
-        db[str(i)] = prefix+":"+str(i)
+        for i in range(count):
+            db[str(i)] = prefix+":"+str(i)
 
-    closeDB()
-    print("insert finish.")
+        closeDB()
+        print("insert finish.")
 
-    print("---start query.")
-    openDB()
-    for key in db:
-        print("key:{},value:{}".format(key,db[key]))
-    closeDB()
+        print("---start query.")
+        openDB()
+        for key in db:
+            print("key:{},value:{}".format(key,db[key]))
+        closeDB()
+    finally:
+        closeDB()
+        dbLock.release()
     print("test db finish.")
 
 def save(kv):
     if None == kv or len(kv) == 0:
         return
-    
+
     global db
-    openDB()
-    for k,v in kv.items():
-        db[k] = v
-    db.flush()
-    closeDB()
+    dbLock.acquire()
+    try:
+        openDB()
+        for k,v in kv.items():
+            db[k] = v
+        db.flush()
+    finally:
+        closeDB()
+        dbLock.release()
 
 def get(k):
     global db
-    openDB()
     res = None
-    if k in db:
-        res = db[k]  
-    closeDB()
+    dbLock.acquire()
+    try:
+        openDB()
+        if k in db:
+            res = db[k]
+    finally:
+        closeDB()
+        dbLock.release()
     return res
 
 def multiGet(keys):
     global db
-    openDB()
     res = {}
-    for k in keys:
-        if k in db:
-            res[k] = db[k]
-        else:
-            res[k] = None  
-    closeDB()
+    dbLock.acquire()
+    try:
+        openDB()
+        for k in keys:
+            if k in db:
+                res[k] = db[k]
+            else:
+                res[k] = None
+    finally:
+        closeDB()
+        dbLock.release()
     return res
 
 def _to_str(val):
@@ -93,44 +114,66 @@ def _to_str(val):
 
 def getAll(verbose=False):
     global db
-    openDB()
     res = {}
-    for key in db:
-        k = _to_str(key)
-        v = _to_str(db[key])
-        res[k] = v
-        if verbose:
-            print("key:{},value:{}".format(k, v))
-    closeDB()
+    dbLock.acquire()
+    try:
+        openDB()
+        for key in db:
+            k = _to_str(key)
+            v = _to_str(db[key])
+            res[k] = v
+            if verbose:
+                print("key:{},value:{}".format(k, v))
+    finally:
+        closeDB()
+        dbLock.release()
     return res
 
 def set(k, v):
     global db
-    openDB()
-    db[k] = v
-    db.flush()
-    closeDB()
+    dbLock.acquire()
+    try:
+        openDB()
+        db[k] = v
+        db.flush()
+    finally:
+        closeDB()
+        dbLock.release()
 
 def delete(k):
     global db
-    openDB()
-    if k in db:
-        del db[k]
-        db.flush()
-    closeDB()
+    dbLock.acquire()
+    try:
+        openDB()
+        if k in db:
+            del db[k]
+            db.flush()
+    finally:
+        closeDB()
+        dbLock.release()
 
 def count():
     global db
-    openDB()
-    n = sum(1 for _ in db)
-    closeDB()
+    n = 0
+    dbLock.acquire()
+    try:
+        openDB()
+        n = sum(1 for _ in db)
+    finally:
+        closeDB()
+        dbLock.release()
     return n
 
 def contains(k):
     global db
-    openDB()
-    found = k in db
-    closeDB()
+    found = False
+    dbLock.acquire()
+    try:
+        openDB()
+        found = k in db
+    finally:
+        closeDB()
+        dbLock.release()
     return found
 
 
