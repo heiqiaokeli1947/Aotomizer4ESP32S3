@@ -202,7 +202,7 @@ self.__fan2PwmPin = PWM(Pin(9), freq=int(self.config["pwm3freq"]), duty=int(self
 **运行时序：**
 ```
 boot → WiFi 连接 → 传感器初始化 → Timer(1) 启动（1秒周期）
-  → Web 服务启动 → 主循环（FSM 调度 + NTP 对时轮询 + 数据保存；WDT 由 Timer(0) 条件喂狗）
+  → Web 服务启动 → 主循环（FSM 调度 10Hz + NTP 对时轮询 + 定时任务；WDT 由 Timer(0) 条件喂狗）
 ```
 
 **启动配置加载（2026-09-21 修复 F10）：**
@@ -211,12 +211,15 @@ boot → WiFi 连接 → 传感器初始化 → Timer(1) 启动（1秒周期）
 - DB 内容损坏（JSON 解析失败或非 dict）时整体回退出厂默认，保证设备总能启动
 - 合并结果不立即落库（避免每次开机写 Flash），下次保存配置时自然持久化
 
-**主循环职责：**
+**主循环职责（10Hz 节拍，`utime.sleep_ms(100)`，2026-09-21 由 1Hz 提升）：**
 1. 刷新主循环活性时间戳 `updateAliveTick()`
-2. 调度 `WaterProcessFSM.run()`
-3. 调度 `AotomizerFSM.run()`
-4. NTP 对时轮询 `tryNtpSync()`（未联网或未到期时立即返回，见 13.1）
-5. 定时保存统计数据到数据库（totalRunTime / totalSprayCount）
+2. NTP 对时轮询 `tryNtpSync()`（未联网或未到期时立即返回，见 13.1）
+3. 调度 `WaterProcessFSM.run()` + `AotomizerFSM.run()`（每轮各一次）
+4. 定时任务——**全部基于真实时间判断（`ticks_diff >= 阈值`），与轮询频率解耦**：
+   - GC + 内存报告：每 5 分钟
+   - 状态 LED 翻转：每 2 秒（保持原节奏）
+   - 统计落盘：每 1 小时
+   - `loopCounter` 仅保留为 feedDog 日志序号，不再参与定时判断
 
 **看门狗机制（活性检测式喂狗，2026-09-21 修复 R1）：**
 - WDT 超时 60s；Timer(0) 每 15s 触发 `feedDog` 回调
@@ -323,13 +326,17 @@ boot → WiFi 连接 → 传感器初始化 → Timer(1) 启动（1秒周期）
 
 （2026-09-21 修复 F11：删除了从 WaterProcessFSM 复制残留的死方法 `checkWaterMark()`——它引用了本类 STATUS 中不存在的 `WATER_TANK_OK/WATER_TANK_NOT_OK` 及未初始化属性，且未挂入状态分发表，一旦误启用会立即崩溃）
 
-**`run()` 执行逻辑（主循环每轮调用，2026-09-21 更正——入口为 `run()` 而非 tick()）：**
+**`run()` 执行逻辑（主循环 10Hz 每轮调用，2026-09-21 更正——入口为 `run()` 而非 tick()；计时已转毫秒）：**
 ```
-1. 更新 runTimeCounter——开机以来的单调秒数（ticks_ms 节拍差；2026-09-21 修复：原用墙钟 utime.time()，NTP 对时跳变会破坏喷雾延时判定）
+1. 更新 runTimeCounterMs——开机以来的单调毫秒数（RTC 时基 ticks_ms 节拍差；
+   与墙钟解耦防 NTP 跳变，且与轮询频率解耦，见 13.3）
 2. 读取翅片温度/湿度/湿球温度与空调霍尔状态
-3. 打印状态日志；每 3600s 落盘 totalSprayCount
+3. 状态日志按时间节流（每 1s 打印一次，防 10Hz 刷屏）；距上次落盘 ≥ 1 小时（时间边沿触发）落盘 totalSprayCount
 4. 按状态分发表执行当前状态动作（状态迁移见上表）
 ```
+- 全部超时判定统一毫秒：`spray1/2/3TimeOut` 与 `sprayPeriod` 内部为 ms 值（config 仍填秒，读取处 ×1000），喷雾时长控制精度 100ms
+- 原 `% 3600 == 0` 落盘写法在 10Hz 下同一秒会重复落盘 10 次，已改为"距上次 ≥ 1 小时"边沿触发
+- `lastOverTempTime`（仅赋值从未参与判断）已删除
 
 ### 5.4 水循环状态机 (domain/WaterProcessFSM.py)
 
@@ -343,13 +350,13 @@ boot → WiFi 连接 → 传感器初始化 → Timer(1) 启动（1秒周期）
 | 2 | FILLING | 正在进水 |
 | 3 | DISCHARGING | 正在排水 |
 
-**补水逻辑（计时基于 runTimeCounter 单调秒数，见 13.3）：**
+**补水逻辑（计时基于 runTimeCounterMs 单调毫秒，见 13.3）：**
 - 低水位触发进水
 - 进水时长超 `waterFillTimeOut` → 超时退出
 - 高水位检测到 → 停止进水
 - 补水累计 → 更新 `totalAddWaterCount`（两次补水间隔受 `minAddWaterInterval` 限制）
 
-**排水逻辑（计时基于 runTimeCounter 单调秒数，见 13.3）：**
+**排水逻辑（计时基于 runTimeCounterMs 单调毫秒，见 13.3）：**
 - 当 TDS 超过阈值 `waterTDSThreshold` → 自动排水补水
 - 排水时长由 `waterDischargeTimeOut` 控制，结束后转入进水
 
@@ -906,9 +913,10 @@ def _parseBool(val):
 |------|------|------|
 | main.py 主循环 | `lastAliveTick` | 看门狗活性检测（30s 窗口，见 5.1） |
 | main.py 主循环 | `lastSysTick` → `runMs` | 本次开机运行毫秒累计，输出时换算秒（/status 返回，见 7.1） |
-| main.py sysTask | `lastSysTick` → `totalRunTimeMs` | 跨开机累计运行毫秒（DB 存秒），每 3600s 落盘 |
-| AotomizerFSM | `bootTickMs` → `runTimeCounter` | 喷雾延时判定（spray1/2/3TimeOut、sprayPeriod）与每小时统计落盘 |
-| WaterProcessFSM | `bootTickMs` → `runTimeCounter` | 进水/排水超时、`minAddWaterInterval` 补水间隔判定 |
+| main.py sysTask | `lastSysTick` → `totalRunTimeMs` | 跨开机累计运行毫秒（DB 存秒），每小时落盘 |
+| main.py 主循环 | `lastGcTick` / `lastLedTick` / `lastMainSaveTick` | GC 5min、LED 翻转 2s、落盘 1h——时间驱动定时任务（见 5.1） |
+| AotomizerFSM | `bootTickMs` → `runTimeCounterMs` | 喷雾延时判定（spray1/2/3TimeOut、sprayPeriod，均 ms）与每小时统计落盘 |
+| WaterProcessFSM | `bootTickMs` → `runTimeCounterMs` | 进水/排水超时、`minAddWaterInterval` 补水间隔判定（均 ms） |
 | NTP 调度 | `ntpLastTryTick` | 首次校时成功前的 60s 重试节流（见 13.1） |
 
 **墙钟使用点：**
@@ -918,6 +926,10 @@ def _parseBool(val):
 | LogUtils `log()` | 日志前缀 `[YYYY-MM-DD HH:MM:SS]`（对时成功前为 1970 起算的默认时间） |
 | NTP 两阶段调度 | `ntpSynced` 置位后按 `utime.time() - ntpLastSync` 判断 1 周重校 |
 | RTC | NTP 对时目标（北京时间 UTC+8，见 13.1） |
+
+**时间驱动原则（2026-09-21 确立，随 FSM 提频至 10Hz 落地）：**
+- 所有周期/定时行为必须基于"距上次 ≥ 阈值"的时间差判断，**禁止用轮询轮数取模**（`loopCounter % N`）——轮数驱动使定时行为与轮询频率耦合，提频后周期自动缩短且同秒重复触发（如原 `% 3600 == 0` 落盘在 10Hz 下同秒重复 10 次）
+- FSM 轮询频率（10Hz）只影响**事件响应延迟**，不影响任何时长语义；配置项单位保持秒（用户可读），读取处统一 ×1000 转 ms
 
 > **背景教训：** NTP 对时使 `utime.time()` 从"1970 起算的开机秒数"向前跳变约 17 亿秒，任何基于墙钟差值的时长判定都会被跳变破坏——runTime 突变巨大值（13.1 连带修复）、FSM 延时立即超时（202609210007 修复）均源于此。新代码凡涉及时长判定必须走单调节拍。
 
@@ -942,6 +954,7 @@ def _parseBool(val):
 | 202609210007 | 2026-09-21 | **修复 FSM 墙钟节拍隐患（NTP 跳变连带，15 节原 #6）**：AotomizerFSM 与 WaterProcessFSM 的 `runTimeCounter` 原基于墙钟 `utime.time()`——NTP 对时使系统时间向前跳变后，喷雾延时/进水超时/排水超时/补水间隔判定与 `% 3600` 统计落盘周期全部紊乱；改为开机以来的单调秒数（`bootTickMs = utime.ticks_ms()` + `ticks_diff(...) // 1000`，与 main.py runTime 修复同模式），两个 FSM 的全部差值比较逻辑无需改动即恢复正确，编号 #6 从 Known Issues 移除；同步更新文档——新增 13.3 节「计时机制约定」集中说明单调节拍与墙钟的分工，5.4 补水/排水逻辑标注计时来源，7.1 runTime 说明补充 FSM 一致性 |
 | 202609210008 | 2026-09-21 | **修复 runTime/totalRunTime 两个边界 bug（NTP 临界检查发现）**：NTP 对时本身不影响二者（RTC 跳变不动 ticks 时基，Web 线程并发读也安全），但发现：① `runTime` 原 = `ticks_diff(now, bootTickMs)//1000`——差值即开机时长，超过 `ticks_diff` 安全窗口（2^29ms ≈ 6.21 天）后变负数，12.42 天回绕后重新计数（长期运行呈锯齿错误）；② `totalRunTime` 每轮 `//1000` 整除丢弃毫秒余数且每轮刷新起点，长期累计偏慢 2~9%。改为**毫秒级累计式**：主循环每轮对 `runMs`/`totalRunTimeMs` 精确累加 `ticks_diff`（每轮间隔约 1s，恒在安全窗口内），`/status` 输出与落盘时才 `//1000` 换算秒——DB 存储格式不变（秒字符串），老数据兼容；13.3 节同步修正安全窗口表述 |
 | 202609210009 | 2026-09-21 | 小修两处：① 修正 AotomizerFSM 水不可用日志拼写 `Water inavailable` → `Water unavailable`；② bsp.py 实例化 TDS 时显式传入 `baudrate=9600`（此前依赖驱动默认值 9600 隐式生效，行为不变，显式化防驱动默认值变更导致波特率静默漂移）；6.3 节括号注释同步更新 |
+| 202609210010 | 2026-09-21 | **FSM 提频至 10Hz + 时间驱动解耦**：主循环周期 1s → 100ms（`sleep_ms(100)`），FSM 事件响应延迟平均 0.5s → 50ms；全部定时逻辑由"轮数取模"改为**真实时间判断**（RTC 时基 ticks_ms 单调读数，`ticks_diff >= 阈值`）——main.py 的 GC 5min/LED 2s/落盘 1h、两个 FSM 的每小时统计落盘均改为时间边沿触发（原 `% 3600 == 0` 在 10Hz 下同秒重复落盘 10 次）；两个 FSM 内部计时转毫秒（`runTimeCounterMs`，spray1/2/3TimeOut、sprayPeriod、waterFill/DischargeTimeOut、minAddWaterInterval 读取处 ×1000，config 单位不变），喷雾时长控制精度 ±1s → ±0.1s；状态日志按时间节流每 1s 一次防 10Hz 刷屏；删除仅赋值未使用的 `lastOverTempTime`；`loopCounter` 退役为日志序号；13.3 节新增「时间驱动原则」；传感器采集保持 Timer(1) 1s 周期不变 |
 
 ---
 

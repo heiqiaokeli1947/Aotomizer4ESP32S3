@@ -116,7 +116,7 @@ def createDefaultConfig():
     db.delete("systemConfig")
     db.save({"systemConfig": ujson.dumps(defaulteSystemConfig)})
 
-loopCounter = 0  # 循环计数器，用于定时判断
+loopCounter = 0  # 循环序号，仅作 feedDog 日志序号（定时判断已改为真实时间驱动）
 # 运行时长用毫秒节拍"累计"计算（不依赖 utime.time()——NTP 对时后系统时间会向前跳变，
 # 墙钟差值会导致 runTime/totalRunTime 突变为巨大值）。
 # 每轮主循环累加毫秒差、输出时再换算秒：
@@ -638,6 +638,14 @@ def sysTask():
     lastSysTick = nowTick
 
 
+# 主循环定时任务时间戳：全部依赖真实时间（RTC 时基 ticks_ms 单调读数），
+# 与轮询频率解耦（FSM 10Hz 节拍后各定时行为不变）
+loopTick = utime.ticks_ms()
+lastGcTick = loopTick
+lastLedTick = loopTick
+lastMainSaveTick = loopTick
+ledOn = True
+
 
 while True:
     updateAliveTick()
@@ -647,24 +655,31 @@ while True:
     # NTP 对时（联网后未同步每 60s 重试，成功后每 1 周重新校时）
     tryNtpSync()
 
-    # 运行状态机
+    # 运行状态机（10Hz 节拍：100ms）
     runFSM()
 
-    if loopCounter % 300 == 0:
+    loopTick = utime.ticks_ms()
+
+    # GC + 内存报告：每 5 分钟一次（时间驱动，原为 loopCounter % 300 轮数驱动）
+    if utime.ticks_diff(loopTick, lastGcTick) >= 300000:
+        lastGcTick = loopTick
         log("-------------Before GC-------------")
         mp.mem_info()
         gc.collect()
         log("-------------After  GC-------------")
         mp.mem_info()
 
-    if loopCounter % 2 == 0:
-        bspInstance.setLEDArray((0, 0, 0))
-    else:
-        bspInstance.setLEDArray(LEDArrayColor)
+    # 状态 LED 翻转：保持原 2s 节奏（时间驱动，原为 loopCounter % 2 轮数驱动）
+    if utime.ticks_diff(loopTick, lastLedTick) >= 2000:
+        lastLedTick = loopTick
+        ledOn = not ledOn
+        bspInstance.setLEDArray(LEDArrayColor if ledOn else (0, 0, 0))
 
-    if (loopCounter % 3600) == 0:
+    # 定时落盘：每 1 小时一次（时间驱动，原为 loopCounter % 3600 轮数驱动）
+    if utime.ticks_diff(loopTick, lastMainSaveTick) >= 3600000:
+        lastMainSaveTick = loopTick
         saveData()
         log("Main:save data to db finish.")
 
-    utime.sleep_ms(1000)
+    utime.sleep_ms(100)
     loopCounter += 1
