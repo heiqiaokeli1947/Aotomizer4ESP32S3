@@ -268,12 +268,23 @@ else:
 app = Microdot()
 
 
+def _sendStatic(request, filePath):
+    """若存在同名 .gz 预压缩文件且客户端支持 gzip，则发送压缩版以减少传输量"""
+    dirEnd = filePath.rfind('/')
+    if 'gzip' in request.headers.get('Accept-Encoding', '') and \
+            fileUtils.isFileExist(filePath[:dirEnd + 1],
+                                  filePath[dirEnd + 1:] + '.gz'):
+        log("send compressed file:{}".format(filePath))
+        return send_file(filePath, compressed=True, file_extension='.gz')
+    return send_file(filePath)
+
+
 # 返回主页
 @app.route('/')
 def handler(request):
     global whenGotoConfigMode
     whenGotoConfigMode = utime.time()
-    return send_file('/static/index.html')
+    return _sendStatic(request, '/static/index.html')
 
 
 @app.route('/favicon.ico')
@@ -285,14 +296,14 @@ def handler(request):
 
     if '..' in fileName or not fileUtils.isFileExist("/static/", fileName):
         return 'Not found:{}'.format(fileName), 404
-    return send_file('/static/' + fileName)
+    return _sendStatic(request, '/static/' + fileName)
 
 
 @app.route('/static/<path:path>')
 def handler(request, path):
     if '..' in path or not fileUtils.isFileExist("/static/", path):
         return 'Not found', 404
-    return send_file('/static/' + path)
+    return _sendStatic(request, '/static/' + path)
 
 
 @app.get('/status')
