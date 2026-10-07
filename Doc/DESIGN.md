@@ -23,7 +23,7 @@
 | 类别 | 技术 |
 |------|------|
 | MCU | ESP32-S3-WROOM-1 |
-| 固件 | MicroPython 1.25 |
+| 固件 | MicroPython v1.28.0（2026-04-06 构建，Generic ESP32S3 Octal-SPIRAM；2026-10-07 板端实测，原记录 v1.25.0 已更新） |
 | Web 框架 | Microdot |
 | 数据库 | ubtree (BTree) |
 | 前端 | 原生 JavaScript + jQuery + Spectre CSS |
@@ -225,7 +225,7 @@ boot → WiFi 连接 → 传感器初始化 → Timer(1) 启动（1秒周期）
    - GC + 内存报告：每 5 分钟
    - 状态 LED 翻转：每 2 秒（保持原节奏）
    - 统计落盘：每 1 小时
-   - WiFi 断线重连：每 30 秒（normal 模式下检查 `isConnected()`，断线则调用 `wifi.startReconnect()` 非阻塞发起重连，`wlan.connect()` 异步执行不阻塞主循环）
+   - WiFi 断线重连：每 30 秒（normal 模式下检查 `isConnected()`，断线则调用 `wifi.startReconnect()` 做一次完整射频电源循环复位式重连，30s 周期即天然退避；函数内 `sleep(1)` 远小于喂狗 30s 活性窗口，不阻塞主循环）
    - `loopCounter` 仅保留为 feedDog 日志序号，不再参与定时判断
 
 **看门狗机制（活性检测式喂狗，2026-09-21 修复 R1）：**
@@ -233,7 +233,7 @@ boot → WiFi 连接 → 传感器初始化 → Timer(1) 启动（1秒周期）
 - 回调仅在 `utime.ticks_diff(now, lastAliveTick) < 30s` 时喂狗，否则打印告警并停止喂狗
 - 主循环卡死 → 时间戳停止刷新 → 停止喂狗 → WDT 触发芯片复位
 - 原实现由 Timer 回调无条件喂狗，主循环卡死时看门狗完全失效，已修复
-- 30s 阈值安全性：开机 WiFi 连接最长阻塞 35s，但期间 t=15s/30s 两次喂狗仍在活性窗口内，主循环启动后立即刷新时间戳，不会误复位
+- 30s 阈值安全性：开机 WiFi 连接最长阻塞约 36s（实测），但期间 t=15s/30s 两次喂狗仍在活性窗口内，主循环启动后立即刷新时间戳，不会误复位
 
 **Timer 回调 (`timerHandler`)：** 每 1 秒触发
 1. 调用 BSP 的 `readBmp280` → 气压/温度/海拔
@@ -883,10 +883,10 @@ def _parseBool(val):
 ## 13. WiFi 模块 (domain/wifi.py)
 
 **功能：**
-- STA 模式：连接指定 SSID
-- AP 模式：热点 `IOT_2G`，IP `192.168.30.1`
-- 自动重连机制
-- IP 广播（UDP 广播到 LAN）
+- STA 模式：连接指定 SSID（开机最长阻塞尝试 36s，失败转 AP 配网模式，配网模式 300s 后整机重启重试）
+- AP 模式：热点 SSID 为 `{devicename}_{APIP}`（如 `Atomizer_192.168.4.1`），AP 侧 IP `192.168.4.1`，密码取 `APPwd`
+- 自动重连机制（见 13.4）
+- IP 广播（UDP 广播到 LAN；断线时 `getStationIP()` 返回 `None`，LED 转品红指示离线）
 
 ### 13.1 NTP 网络对时 (domain/ntpSync.py)（2026-09-21 新增）
 
@@ -927,6 +927,7 @@ def _parseBool(val):
 | AotomizerFSM | `lastRunTick` → `runTimeCounterMs`（逐轮累计） | 喷雾延时判定（spray1/2/3TimeOut、sprayPeriod，均 ms）与每小时统计落盘 |
 | WaterProcessFSM | `lastRunTick` → `runTimeCounterMs`（逐轮累计） | 进水/排水超时、`minAddWaterInterval` 补水间隔判定（均 ms） |
 | NTP 调度 | `ntpLastTryTick` | 首次校时成功前的 60s 重试节流（见 13.1） |
+| main.py 主循环 | `lastWifiCheckTick`（30s） | WiFi 断线检查与复位式重连节流，normal 模式（见 13.4） |
 
 **墙钟使用点：**
 
@@ -942,6 +943,17 @@ def _parseBool(val):
 - **长寿命"距开机时长"值禁止对开机快照做差**（2026-09-22 补充）：`ticks_diff(now, bootTickMs)` 一旦真实间隔超过 2^29ms（≈6.21 天）即越窗变负——必须像 `runMs`/`runTimeCounterMs` 一样**逐轮累加每轮小间隔**；同理，任何秒级配置转 ms 的 ×1000 必须在 `__init__` 与 `reloadConfig()` 两处保持一致（202609220001 教训）
 
 > **背景教训：** NTP 对时使 `utime.time()` 从"1970 起算的开机秒数"向前跳变约 17 亿秒，任何基于墙钟差值的时长判定都会被跳变破坏——runTime 突变巨大值（13.1 连带修复）、FSM 延时立即超时（202609210007 修复）均源于此。新代码凡涉及时长判定必须走单调节拍。
+
+### 13.4 断线自动重连（2026-10-07 修订，版本 202610070001）
+
+**背景：** 设备连续运行几十小时后（DHCP 租约到期 / 信标丢失 / 被 deauth / 路由器重启或信道切换），STA 可能进入"**接口仍 active 但内部关联-DHCP 状态机已卡死**"的假活状态。早期实现只在 `not wlan.active()` 时激活接口、随后对"热"接口反复 `wlan.connect()`——该调用只重发关联请求，不重走认证与 DHCP，无法从此类假死恢复，导致设备永久离线只能断电。
+
+**机制（复位式重连，极简无状态）：**
+- 主循环 normal 模式每 30s（`WIFI_RECONNECT_INTERVAL_MS`）检查 `wlan.isconnected()`，断线即调用一次 `wifi.startReconnect(ssid, pwd)`
+- 每次调用都执行完整射频电源循环：`wlan.active(False)` → `sleep(1)` → `wlan.active(True)` → `wlan.connect(ssid, pwd)`，强制重走扫描→认证→关联→**DHCP** 全流程
+- **无失败计数、无退避状态机**：30s 检查周期本身即天然退避，路由器恢复后最坏 30s 内重新上线
+- `sleep(1)` 远小于喂狗 30s 活性窗口，不触发 WDT；全部异常捕获，返回 True/False
+- 板端实测（2026-10-07，COM43，固件 v1.28.0）：函数耗时约 1023ms，STA active 正确经历 False→True；现场 SSID 不可达时设备按预期进入 AP 配网模式
 
 ---
 
@@ -971,6 +983,7 @@ def _parseBool(val):
 | 202609220003 | 2026-09-22 | **F4 业务决策落地（仅文档修正，无代码变更）**：确认当前无换水硬件，TDS 超阈值不做换水——代码复核证实 WaterProcessFSM 排水/进水循环仅由水位 `waterMark` 触发（`waterTDSThreshold` 仅加载与显示，从未参与控制），TDS 阈值唯一作用是 AotomizerFSM 喷雾水质门控（≥ 阈值禁止喷雾）；修正文档两处错误描述（2.2 配置表"超过则排水"、5.4"当 TDS 超过阈值→自动排水补水"），15 节 F4 行删除 |
 | 202609220004 | 2026-09-22 | **复审后修复前端 2 项（FE-1/FE-9）**：① FE-1 契约断裂——`handleResponse()` 原把 `errCode='-1'` 硬编码为"密码错误!"且预置文案优先，R4 校验拒绝返回的具体原因（msg）被丢弃误导用户；改为失败时服务端 `msg` 优先（无 msg 才回退预置文案），成功时仍保留预置中文文案，单点修复覆盖全部 5 个保存入口；② FE-9 无效温度误着色——模型层无效值为数字 -9999（`nv(v, invalid)`），视图判断 `!== '----'` 恒真致 -9999 被染成正常绿色；着色条件补充 `!== INVALID_VALUE` 排除。前端其余发现（SSID XSS、-9999 真值误判"可用"、轮询无超时、编辑被覆盖、URL 未编码等）为已知建议级事项 |
 | 202609220005 | 2026-09-22 | **无效值体系专项检查后修复 2 项（BE-1/BE-2）**：① BE-1——两个 FSM 的传感器显示副本（AotomizerFSM `finTemp/humity/wetBulbTemp`、WaterProcessFSM `inWaterTDS/inWaterTemp/waterTankTDS/waterTankTemp`）初始化为 0，违反"失败值必须立即置 -9999"硬约束，开机后首个 run() tick（<100ms）内 Web 查询会显示看似有效的 0 读数；改为 init -9999；② BE-2——`bsp._applyTdsResult()` 失败时打出 `-999.9 ℃, -9999.0 ppm` 噪声日志；改为双通道失败合并单条 WARN、单通道失败仅 WARN 失败通道、正常通道保持完整日志。检查同时确认：sensorData 17 字段/-9999 驱动失败路径/AACOps 湿球入口保护/getWaterAvailableStatus 判断/JSON 透传均健康，int 与 float 型 -9999 在 `==` 与 JSON 序列化下等价无害 |
+| 202610070001 | 2026-10-07 | **修复长跑几十小时后 WiFi 掉线不可恢复**：原 `startReconnect()` 仅在 `not wlan.active()` 时 active(True)，随后对仍 active 的"热"接口反复 `connect()`；长跑后（DHCP 租约到期/信标丢失/deauth/路由重启）STA 会进入"接口 active 但关联-DHCP 状态机卡死"的假活状态，热 connect 只重发关联请求、无法恢复，设备永久离线。改为**复位式重连**：每次调用执行 `active(False)` → `sleep(1)` → `active(True)` → `connect()` 完整射频电源循环，强制重走扫描→认证→关联→DHCP；主循环 30s 检查周期不变（天然退避，无需失败计数），1s 复位延时远小于喂狗 30s 活性窗口，异常全捕获。NTP socket（finally close）、ticks_ms 节流（无 NTP 跳变问题）、非阻塞喂狗均已复核无泄漏。**当日烧录 COM43 板端验证**：21 源码+5 静态资源经 mpremote 上传；启动流程正常（BSP/传感器/FSM/Web 均 OK），开机 WiFi 阻塞约 36s 超时后按设计进入 AP 配网模式（现场 SSID 不可达），条件喂狗日志正确；板端直接调用 `startReconnect()` 实测耗时约 1023ms、active 经历 False→True 后恢复 True。板载固件确认为 **v1.28.0（2026-04-06）**，1.3 节固件版本同步更新；端到端"关路由→30s 重连→开路由→恢复"需现场有 AP 时由用户复验 |
 
 ---
 
@@ -995,6 +1008,7 @@ def _parseBool(val):
 | 9 | R3 BMP280/HDC1080 的 I²C 同步读取仍在 Timer(1) 回调中执行，总线异常时可能阻塞回调（TDS 已异步化） | 低 |
 | 10 | R10 统计数据周期性落盘存在 Flash 写入磨损 | 低 |
 | 11 | R12 广播 AP 常开：配网完成后 AP 未关闭，持续占用射频 | 低 |
+| 18 | P1-6 正常模式调用 `/setwifi` 测试新 SSID 失败会短暂断开现有连接；202610070001 后已被主循环 30s 复位式重连兜底（若新凭据本身错误则仍无法连回旧 SSID，该接口建议仅在配网模式使用） | 低 |
 
 **低优先级：**
 

@@ -723,9 +723,9 @@ lastWifiCheckTick = loopTick
 ledOn = True
 
 # WiFi 断线应用层重连（P1-7）：normal 模式下每 30s 检查一次连接状态，
-# 断线则调用 wifi.startReconnect() 非阻塞发起重连（wlan.connect() 异步执行，
-# 不阻塞主循环，绝不触发喂狗超时）；结果由下一轮检查确认，
-# 断线期间的 LED 指示由 broadcastIPInfo 线程按实际连接状态刷新
+# 断线则调用 wifi.startReconnect() 做一次射频电源循环（active off→on→connect）
+# 完整重建关联与 DHCP，可从长跑假死状态恢复；1s 复位延时不阻塞喂狗（30s 活性窗口），
+# 30s 周期即天然退避；断线期间 LED 指示由 broadcastIPInfo 线程按实际连接状态刷新
 WIFI_RECONNECT_INTERVAL_MS = 30000
 
 

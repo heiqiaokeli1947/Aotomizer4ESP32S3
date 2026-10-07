@@ -66,16 +66,21 @@ def getStationIP():
 
 
 def startReconnect(ssid, pwd):
-    # 非阻塞发起重连（P1-7）：wlan.connect() 异步执行立即返回，由主循环每 30s 检查
-    # isConnected() 确认结果。断线期间周期调用安全（连接进行中重复 connect 会重启
-    # 连接流程，无副作用）；异常全部捕获，绝不阻塞/拖垮主循环。
+    # 复位式重连（高可靠极简方案）：断线后每次重连都对 STA 做一次完整射频电源循环
+    # active(False) → 1s → active(True) → connect()，强制底层完整重走
+    # 扫描→认证→关联→DHCP 全流程。
+    # 背景：长跑几十小时后（DHCP 租约到期/信标丢失/deauth/路由重启）STA 可能进入
+    # "接口仍 active 但内部关联-DHCP 状态机已卡死"的假活状态，此时对热接口反复
+    # connect() 只重发关联请求、无法恢复；只有射频复位才能彻底重建。
+    # 由主循环每 30s 在确认 isConnected()==False 后调用一次，30s 周期即天然退避，
+    # 无需失败计数；1s sleep 远小于喂狗 30s 活性窗口，不触发 WDT；异常全捕获。
     try:
         wlan = network.WLAN(network.STA_IF)
-        if not wlan.active():
-            wlan.active(True)
-        if not wlan.isconnected():
-            wlan.connect(ssid, pwd)
-            log("wifi reconnect attempt:{}".format(ssid))
+        wlan.active(False)
+        time.sleep(1)
+        wlan.active(True)
+        wlan.connect(ssid, pwd)
+        log("wifi reconnect (radio restart):{}".format(ssid))
         return True
     except Exception as e:
         sys.print_exception(e)
